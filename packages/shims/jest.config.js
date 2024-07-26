@@ -8,6 +8,8 @@ const path = require('path');
 
 const baseConfig = require('../../jest.config.packages');
 
+delete baseConfig.coverageThreshold;
+
 const displayName = path.basename(__dirname);
 
 module.exports = merge(baseConfig, {

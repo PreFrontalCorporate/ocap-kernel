@@ -33,7 +33,7 @@ module.exports = {
 
   overrides: [
     {
-      files: ['*.js'],
+      files: ['*.js', '*.cjs'],
       parserOptions: {
         sourceType: 'script',
         ecmaVersion: '2020',
@@ -41,21 +41,36 @@ module.exports = {
     },
 
     {
-      files: ['*.ts'],
+      files: ['*.mjs'],
+      parserOptions: {
+        sourceType: 'module',
+        ecmaVersion: '2020',
+      },
+    },
+
+    {
+      files: ['**/scripts/*.mjs'],
+      parserOptions: {
+        ecmaVersion: '2022',
+      },
+      rules: {
+        'import/extensions': 'off',
+        'import/no-unassigned-import': 'off',
+      },
+    },
+
+    {
+      files: ['*.ts', '*.cts', '*.mts'],
       extends: ['@metamask/eslint-config-typescript'],
       parserOptions: {
         tsconfigRootDir: __dirname,
         project: ['./tsconfig.packages.json'],
       },
       rules: {
-        // Enable rules that are disabled in `@metamask/eslint-config-typescript`
         '@typescript-eslint/no-explicit-any': 'error',
 
-        // TODO: auto-fix breaks stuff
-        '@typescript-eslint/promise-function-async': 'off',
-
-        // Without the `allowAny` option, this rule causes a lot of false
-        // positives.
+        // This rule is broken, and without the `allowAny` option, it causes
+        // a lot of false positives.
         '@typescript-eslint/restrict-template-expressions': [
           'error',
           {

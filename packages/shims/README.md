@@ -1,14 +1,6 @@
-# `@metamask/ocap-playground`
+# `@ocap/shims`
 
-An Ocap Kernel playground.
-
-## Installation
-
-`yarn add @metamask/ocap-playground`
-
-or
-
-`npm install @metamask/ocap-playground`
+Shims for ocap programming that we want to import without transforming, such as `lockdown` and `eventual-send`.
 
 ## Contributing
 

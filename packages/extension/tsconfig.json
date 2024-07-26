@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.packages.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "baseUrl": "./",
+    "isolatedModules": true,
+    "lib": ["DOM", "ES2020"],
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["chrome", "ses", "vitest"]
+  },
+  "include": ["./src/**/*.ts", "./src/dev-console.mjs"]
+}

@@ -1,5 +1,8 @@
 {
   "files": [],
   "include": [],
-  "references": [{ "path": "./packages/ocap-playground/tsconfig.build.json" }]
+  "references": [
+    { "path": "./packages/extension/tsconfig.build.json" },
+    { "path": "./packages/shims/tsconfig.build.json" }
+  ]
 }

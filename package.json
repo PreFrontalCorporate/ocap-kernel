@@ -1,5 +1,5 @@
 {
-  "name": "ocap-kernel-monorepo",
+  "name": "@ocap/monorepo",
   "version": "0.0.0",
   "private": true,
   "repository": {
@@ -11,10 +11,10 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "yarn run build:source && yarn run build:types",
+    "build": "yarn run build:source && yarn build:types",
     "build:clean": "yarn clean && yarn build",
-    "build:docs": "yarn workspaces foreach --all --exclude ocap-kernel-monorepo --parallel --interlaced --verbose run build:docs",
-    "build:source": "yarn workspaces foreach --all --parallel --exclude ocap-kernel-monorepo --interlaced --verbose run build",
+    "build:docs": "yarn workspaces foreach --all --exclude @ocap/monorepo --exclude @ocap/extension --parallel --interlaced --verbose run build:docs",
+    "build:source": "yarn workspaces foreach --all --topological --parallel --interlaced --exclude @ocap/monorepo --verbose run build",
     "build:types": "tsc --build tsconfig.build.json --verbose",
     "build:watch": "yarn run build --watch",
     "changelog:update": "yarn workspaces foreach --all --no-private --parallel --interlaced --verbose run changelog:update",
@@ -23,11 +23,11 @@
     "lint": "yarn lint:eslint && yarn lint:misc --check && yarn constraints && yarn lint:dependencies",
     "lint:dependencies": "depcheck && yarn dedupe --check",
     "lint:dependencies:fix": "depcheck && yarn dedupe",
-    "lint:eslint": "eslint . --cache --ext js,cjs,ts",
+    "lint:eslint": "eslint . --cache --ext js,mjs,cjs,ts,mts,cts",
     "lint:fix": "yarn lint:eslint --fix && yarn lint:misc --write && yarn constraints --fix && yarn lint:dependencies:fix",
     "lint:misc": "prettier '**/*.json' '**/*.md' '!**/CHANGELOG.old.md' '**/*.yml' '!.yarnrc.yml' '!merged-packages/**' --ignore-path .gitignore",
     "prepack": "./scripts/prepack.sh",
-    "test": "yarn test:verbose --silent --collectCoverage=false --reporters=jest-silent-reporter",
+    "test": "yarn workspaces foreach --all --parallel --verbose run test",
     "test:clean": "yarn workspaces foreach --all --parallel --verbose run test:clean && yarn test",
     "test:verbose": "yarn workspaces foreach --all --parallel --verbose run test:verbose"
   },
@@ -58,9 +58,10 @@
     "eslint-plugin-promise": "^6.1.1",
     "jest": "^28.1.3",
     "jest-silent-reporter": "^0.6.0",
+    "jsdom": "^24.1.1",
     "prettier": "^2.7.1",
     "prettier-plugin-packagejson": "^2.3.0",
-    "rimraf": "^6.0.0",
+    "rimraf": "^6.0.1",
     "ts-jest": "^28.0.7",
     "typedoc": "^0.24.8",
     "typescript": "~4.9.5"

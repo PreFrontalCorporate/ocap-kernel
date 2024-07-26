@@ -1,0 +1,19 @@
+{
+  "name": "Ocap Kernel Test Extension",
+  "version": "0.0",
+  "description": "For running Ocap Kernel experiments in an extension environment.",
+  "manifest_version": 3,
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {},
+  "permissions": ["offscreen"],
+  "sandbox": {
+    "pages": ["iframe.html"]
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; frame-ancestors 'none';",
+    "sandbox": "sandbox allow-scripts; script-src 'self' 'unsafe-inline' 'unsafe-eval'; object-src 'none'; default-src 'none'; connect-src *;"
+  }
+}
