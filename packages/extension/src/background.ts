@@ -1,7 +1,7 @@
-/* eslint-disable import/no-unassigned-import */
+/* eslint-disable import-x/no-unassigned-import */
 import './dev-console.js';
 import './endoify.mjs';
-/* eslint-enable import/no-unassigned-import */
+/* eslint-enable import-x/no-unassigned-import */
 
 import type { ExtensionMessage } from './shared.js';
 import { Command, makeHandledCallback } from './shared.js';
@@ -28,11 +28,12 @@ chrome.action.onClicked.addListener(() => {
 
 /**
  * Send a message to the offscreen document.
+ *
  * @param type - The message type.
  * @param data - The message data.
  * @param data.name - The name to include in the message.
  */
-async function sendMessage(type: string, data?: string) {
+async function sendMessage(type: string, data?: string): Promise<void> {
   await provideOffScreenDocument();
 
   await chrome.runtime.sendMessage({
@@ -45,7 +46,7 @@ async function sendMessage(type: string, data?: string) {
 /**
  * Create the offscreen document if it doesn't already exist.
  */
-async function provideOffScreenDocument() {
+async function provideOffScreenDocument(): Promise<void> {
   if (!(await chrome.offscreen.hasDocument())) {
     await chrome.offscreen.createDocument({
       url: OFFSCREEN_DOCUMENT_PATH,
@@ -83,7 +84,7 @@ chrome.runtime.onMessage.addListener(
 /**
  * Close the offscreen document if it exists.
  */
-async function closeOffscreenDocument() {
+async function closeOffscreenDocument(): Promise<void> {
   if (!(await chrome.offscreen.hasDocument())) {
     return;
   }

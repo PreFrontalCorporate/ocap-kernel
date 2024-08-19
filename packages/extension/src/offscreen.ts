@@ -37,10 +37,11 @@ iframeManager.create(IFRAME_ID).catch((error) => {
 
 /**
  * Reply to the background script.
+ *
  * @param type - The message type.
  * @param data - The message data.
  */
-async function reply(type: Command, data?: string) {
+async function reply(type: Command, data?: string): Promise<void> {
   await chrome.runtime.sendMessage({
     data: data ?? null,
     target: 'background',
@@ -50,10 +51,11 @@ async function reply(type: Command, data?: string) {
 
 /**
  * Evaluate a string in the default iframe.
+ *
  * @param source - The source string to evaluate.
  * @returns The result of the evaluation, or an error message.
  */
-async function evaluate(source: string) {
+async function evaluate(source: string): Promise<string> {
   try {
     const result = await iframeManager.sendMessage(IFRAME_ID, {
       type: Command.Evaluate,

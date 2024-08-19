@@ -8,7 +8,7 @@ import { Command, isWrappedIframeMessage } from './shared.js';
 const IFRAME_URI = 'iframe.html';
 
 // The actual <iframe> id, for greater collision resistance.
-const getHtmlId = (id: string) => `ocap-iframe-${id}`;
+const getHtmlId = (id: string): string => `ocap-iframe-${id}`;
 
 type PromiseCallbacks = Omit<PromiseKit<unknown>, 'promise'>;
 
@@ -20,9 +20,9 @@ export class IframeManager {
 
   #currentId: number;
 
-  #unresolvedMessages: Map<string, PromiseCallbacks>;
+  readonly #unresolvedMessages: Map<string, PromiseCallbacks>;
 
-  #iframes: Map<string, Window>;
+  readonly #iframes: Map<string, Window>;
 
   /**
    * Create a new IframeManager.
@@ -48,6 +48,7 @@ export class IframeManager {
 
   /**
    * Get the singleton instance of IframeManager.
+   *
    * @returns The singleton instance of IframeManager.
    */
   public static getInstance(): IframeManager {
@@ -59,11 +60,12 @@ export class IframeManager {
 
   /**
    * Create a new iframe.
+   *
    * @param id - The id of the iframe to create.
    * @returns The iframe's content window, and its id.
    */
   async create(id?: string): Promise<readonly [Window, string]> {
-    const actualId = id === undefined ? this.#nextId() : id;
+    const actualId = id ?? this.#nextId();
     const newWindow = await createWindow(IFRAME_URI, getHtmlId(actualId));
     this.#iframes.set(actualId, newWindow);
     await this.sendMessage(actualId, { type: Command.Ping, data: null });
@@ -73,9 +75,10 @@ export class IframeManager {
 
   /**
    * Delete an iframe.
+   *
    * @param id - The id of the iframe to delete.
    */
-  delete(id: string) {
+  delete(id: string): void {
     if (this.#iframes.has(id)) {
       // TODO: Handle orphaned messages
       this.#iframes.delete(id);
@@ -95,13 +98,15 @@ export class IframeManager {
 
   /**
    * Send a message to an iframe.
+   *
    * @param id - The id of the iframe to send the message to.
    * @param message - The message to send.
+   * @returns A promise that resolves the response to the message.
    */
   async sendMessage(
     id: string,
     message: IframeMessage<Command, string | null>,
-  ) {
+  ): Promise<unknown> {
     const iframeWindow = this.#get(id);
     if (iframeWindow === undefined) {
       throw new Error(`No iframe with id "${id}"`);
@@ -114,7 +119,7 @@ export class IframeManager {
     return promise;
   }
 
-  #handleMessage(event: MessageEvent) {
+  #handleMessage(event: MessageEvent): void {
     console.debug('Offscreen received message', event);
 
     if (!isWrappedIframeMessage(event.data)) {
@@ -135,13 +140,13 @@ export class IframeManager {
     promiseCallbacks.resolve(message.data);
   }
 
-  #nextId() {
+  #nextId(): string {
     const id = this.#currentId;
     this.#currentId += 1;
     return String(id);
   }
 
-  #get(id: string) {
+  #get(id: string): Window | undefined {
     return this.#iframes.get(id);
   }
 }
