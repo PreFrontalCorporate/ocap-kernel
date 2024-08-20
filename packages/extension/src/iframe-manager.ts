@@ -1,99 +1,102 @@
 import type { PromiseKit } from '@endo/promise-kit';
 import { makePromiseKit } from '@endo/promise-kit';
 import { createWindow } from '@metamask/snaps-utils';
+import type { MessagePortReader, MessagePortStreamPair } from '@ocap/streams';
+import {
+  initializeMessageChannel,
+  makeMessagePortStreamPair,
+} from '@ocap/streams';
 
-import type { IframeMessage } from './shared.js';
+import type { IframeMessage, WrappedIframeMessage } from './shared.js';
 import { Command, isWrappedIframeMessage } from './shared.js';
 
 const IFRAME_URI = 'iframe.html';
 
-// The actual <iframe> id, for greater collision resistance.
+/**
+ * Get a DOM id for our iframes, for greater collision resistance.
+ *
+ * @param id - The id to base the DOM id on.
+ * @returns The DOM id.
+ */
 const getHtmlId = (id: string): string => `ocap-iframe-${id}`;
 
 type PromiseCallbacks = Omit<PromiseKit<unknown>, 'promise'>;
+
+type GetPort = (targetWindow: Window) => Promise<MessagePort>;
 
 /**
  * A singleton class to manage and message iframes.
  */
 export class IframeManager {
-  static #instance: IframeManager;
-
   #currentId: number;
 
   readonly #unresolvedMessages: Map<string, PromiseCallbacks>;
 
-  readonly #iframes: Map<string, Window>;
+  readonly #vats: Map<string, MessagePortStreamPair<WrappedIframeMessage>>;
 
   /**
    * Create a new IframeManager.
    */
-  // Our lint config wants #-private, but we can't do that to the constructor.
-  // eslint-disable-next-line no-restricted-syntax
-  private constructor() {
-    /* v8 ignore next 3: We're just not going to do this to ourselves. */
-    if (IframeManager.#instance !== undefined) {
-      throw new Error('IframeManager is a singleton');
-    }
-
+  constructor() {
     this.#currentId = 0;
-    this.#iframes = new Map();
+    this.#vats = new Map();
     this.#unresolvedMessages = new Map();
-
-    window.addEventListener('message', (event: MessageEvent) =>
-      this.#handleMessage(event),
-    );
-
-    IframeManager.#instance = this;
   }
 
   /**
-   * Get the singleton instance of IframeManager.
+   * Create a new vat, in the form of an iframe.
    *
-   * @returns The singleton instance of IframeManager.
+   * @param args - Options bag.
+   * @param args.id - The id of the vat to create.
+   * @param args.getPort - A function to get the message port for the iframe.
+   * @returns The iframe's content window, and its internal id.
    */
-  public static getInstance(): IframeManager {
-    if (!IframeManager.#instance) {
-      IframeManager.#instance = new IframeManager();
-    }
-    return IframeManager.#instance;
-  }
+  async create(
+    args: { id?: string; getPort?: GetPort } = {},
+  ): Promise<readonly [Window, string]> {
+    const id = args.id ?? this.#nextId();
+    const getPort = args.getPort ?? initializeMessageChannel;
 
-  /**
-   * Create a new iframe.
-   *
-   * @param id - The id of the iframe to create.
-   * @returns The iframe's content window, and its id.
-   */
-  async create(id?: string): Promise<readonly [Window, string]> {
-    const actualId = id ?? this.#nextId();
-    const newWindow = await createWindow(IFRAME_URI, getHtmlId(actualId));
-    this.#iframes.set(actualId, newWindow);
-    await this.sendMessage(actualId, { type: Command.Ping, data: null });
-    console.debug(`Created iframe with id "${actualId}"`);
-    return [newWindow, actualId] as const;
+    const newWindow = await createWindow(IFRAME_URI, getHtmlId(id));
+    const port = await getPort(newWindow);
+    const streams = makeMessagePortStreamPair<WrappedIframeMessage>(port);
+    this.#vats.set(id, streams);
+    /* v8 ignore next 4: Not known to be possible. */
+    this.#receiveMessages(streams.reader).catch((error) => {
+      console.error(`Unexpected read error from vat "${id}"`, error);
+      this.delete(id).catch(() => undefined);
+    });
+
+    await this.sendMessage(id, { type: Command.Ping, data: null });
+    console.debug(`Created vat with id "${id}"`);
+    return [newWindow, id] as const;
   }
 
   /**
    * Delete an iframe.
    *
    * @param id - The id of the iframe to delete.
+   * @returns A promise that resolves when the iframe is deleted.
    */
-  delete(id: string): void {
-    if (this.#iframes.has(id)) {
-      // TODO: Handle orphaned messages
-      this.#iframes.delete(id);
-
-      const iframe = document.getElementById(getHtmlId(id));
-      /* v8 ignore next 6: Currently impossible. */
-      if (iframe === null) {
-        console.error(
-          `Registered iframe with id "${id}" already removed from DOM`,
-        );
-        return;
-      }
-
-      iframe.remove();
+  async delete(id: string): Promise<void> {
+    const streams = this.#vats.get(id);
+    if (streams === undefined) {
+      return undefined;
     }
+
+    const closeP = streams.return();
+    // TODO: Handle orphaned messages
+    this.#vats.delete(id);
+
+    const iframe = document.getElementById(getHtmlId(id));
+    /* v8 ignore next 6: Not known to be possible. */
+    if (iframe === null) {
+      console.error(`iframe of vat with id "${id}" already removed from DOM`);
+      return undefined;
+    }
+    iframe.remove();
+
+    return closeP;
   }
 
   /**
@@ -107,46 +110,46 @@ export class IframeManager {
     id: string,
     message: IframeMessage<Command, string | null>,
   ): Promise<unknown> {
-    const iframeWindow = this.#get(id);
-    if (iframeWindow === undefined) {
-      throw new Error(`No iframe with id "${id}"`);
+    const streams = this.#vats.get(id);
+    if (streams === undefined) {
+      throw new Error(`No vat with id "${id}"`);
     }
 
     const { promise, reject, resolve } = makePromiseKit();
     const messageId = this.#nextId();
     this.#unresolvedMessages.set(messageId, { reject, resolve });
-    iframeWindow.postMessage({ id: messageId, message }, '*');
+    await streams.writer.next({ id: messageId, message });
     return promise;
   }
 
-  #handleMessage(event: MessageEvent): void {
-    console.debug('Offscreen received message', event);
+  async #receiveMessages(
+    reader: MessagePortReader<WrappedIframeMessage>,
+  ): Promise<void> {
+    for await (const rawMessage of reader) {
+      console.debug('Offscreen received message', rawMessage);
 
-    if (!isWrappedIframeMessage(event.data)) {
-      console.warn(
-        'Offscreen received message with unexpected format',
-        event.data,
-      );
-      return;
+      if (!isWrappedIframeMessage(rawMessage)) {
+        console.warn(
+          'Offscreen received message with unexpected format',
+          rawMessage,
+        );
+        return;
+      }
+
+      const { id, message } = rawMessage;
+      const promiseCallbacks = this.#unresolvedMessages.get(id);
+      if (promiseCallbacks === undefined) {
+        console.error(`No unresolved message with id "${id}".`);
+        continue;
+      }
+
+      promiseCallbacks.resolve(message.data);
     }
-
-    const { id, message } = event.data;
-    const promiseCallbacks = this.#unresolvedMessages.get(id);
-    if (promiseCallbacks === undefined) {
-      console.error(`No unresolved message with id "${id}".`);
-      return;
-    }
-
-    promiseCallbacks.resolve(message.data);
   }
 
   #nextId(): string {
     const id = this.#currentId;
     this.#currentId += 1;
     return String(id);
-  }
-
-  #get(id: string): Window | undefined {
-    return this.#iframes.get(id);
   }
 }

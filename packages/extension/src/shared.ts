@@ -24,7 +24,7 @@ export type IframeMessage<
 
 export type WrappedIframeMessage = {
   id: string;
-  message: IframeMessage<Command, string>;
+  message: IframeMessage<Command, string | null>;
 };
 
 export const isWrappedIframeMessage = (

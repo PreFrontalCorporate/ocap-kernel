@@ -4,11 +4,14 @@
     "allowJs": true,
     "baseUrl": "./",
     "emitDeclarationOnly": false,
-    "lib": ["DOM", "ES2020"],
+    "lib": ["DOM", "ES2022"],
     "noEmit": true,
     "rootDir": "./src",
     "types": ["chrome", "ses"]
   },
-  "references": [{ "path": "../shims/tsconfig.build.json" }],
+  "references": [
+    { "path": "../shims/tsconfig.build.json" },
+    { "path": "../streams/tsconfig.build.json" }
+  ],
   "include": ["./src/**/*.ts", "./src/dev-console.js"]
 }

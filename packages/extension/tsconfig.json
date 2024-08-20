@@ -4,11 +4,11 @@
     "allowJs": true,
     "baseUrl": "./",
     "isolatedModules": true,
-    "lib": ["DOM", "ES2020"],
+    "lib": ["DOM", "ES2022"],
     "noEmit": true,
     "skipLibCheck": true,
     "types": ["chrome", "ses", "vitest", "vitest/jsdom"]
   },
-  "references": [{ "path": "../test-utils" }],
-  "include": ["./src/**/*.ts", "src/dev-console.js"]
+  "references": [{ "path": "../streams" }, { "path": "../test-utils" }],
+  "include": ["./src/**/*.ts", "./src/dev-console.js"]
 }
