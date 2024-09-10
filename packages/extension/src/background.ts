@@ -1,6 +1,4 @@
-import './dev-console.js';
-import './endoify.js';
-
+import './background-trusted-prelude.js';
 import type { ExtensionMessage } from './shared.js';
 import { Command, makeHandledCallback } from './shared.js';
 

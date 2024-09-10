@@ -1,20 +1,18 @@
 // eslint-disable-next-line spaced-comment
 /// <reference types="vitest" />
 
-import { load as loadHtml } from 'cheerio';
 import path from 'path';
-import { format as prettierFormat } from 'prettier';
-import type { Plugin } from 'vite';
 import { defineConfig } from 'vite';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 
+import { htmlTrustedPrelude } from './vite-plugins/html-trusted-prelude';
+import { jsTrustedPrelude } from './vite-plugins/js-trusted-prelude';
+
 const projectRoot = './src';
 
-/**
- * Module specifiers that will be ignored by Rollup if imported, and therefore
- * not transformed. **Only applies to JavaScript and TypeScript files.**
- */
-const externalModules: readonly string[] = ['./dev-console.js', './endoify.js'];
+const jsTrustedPreludes = {
+  background: path.resolve(projectRoot, 'background-trusted-prelude.js'),
+};
 
 /**
  * Files that need to be statically copied to the destination directory.
@@ -26,6 +24,8 @@ const staticCopyTargets: readonly string[] = [
   // External modules
   'dev-console.js',
   '../../shims/dist/endoify.js',
+  // Trusted preludes
+  ...new Set(Object.values(jsTrustedPreludes)),
 ];
 
 // https://vitejs.dev/config/
@@ -36,7 +36,6 @@ export default defineConfig({
     emptyOutDir: true,
     outDir: path.resolve(projectRoot, '../dist'),
     rollupOptions: {
-      external: [...externalModules],
       input: {
         background: path.resolve(projectRoot, 'background.ts'),
         offscreen: path.resolve(projectRoot, 'offscreen.html'),
@@ -51,53 +50,13 @@ export default defineConfig({
   },
 
   plugins: [
-    endoifyHtmlFilesPlugin(),
+    htmlTrustedPrelude(),
     viteStaticCopy({
       targets: staticCopyTargets.map((src) => ({ src, dest: './' })),
       watch: { reloadPageOnChange: true },
     }),
+    jsTrustedPrelude({
+      trustedPreludes: jsTrustedPreludes,
+    }),
   ],
 });
-
-/**
- * Vite plugin to insert the endoify script before the first script in the head element.
- *
- * @throws If the HTML document already references the endoify script or lacks the expected
- * structure.
- * @returns The Vite plugin.
- */
-function endoifyHtmlFilesPlugin(): Plugin {
-  const endoifyElement = '<script src="endoify.js" type="module"></script>';
-
-  return {
-    name: 'externalize-plugin',
-    async transformIndexHtml(htmlString): Promise<string> {
-      const htmlDoc = loadHtml(htmlString);
-
-      if (htmlDoc('script[src="endoify.ts"]').length > 0) {
-        throw new Error(
-          `HTML document should not reference "endoify.ts" directly:\n${htmlString}`,
-        );
-      }
-
-      if (htmlDoc('script[src="endoify.js"]').length > 0) {
-        throw new Error(
-          `HTML document already references endoify script:\n${htmlString}`,
-        );
-      }
-
-      if (htmlDoc('head').length !== 1 || htmlDoc('head > script').length < 1) {
-        throw new Error(
-          `Expected HTML document with a single <head> containing at least one <script>. Received:\n${htmlString}`,
-        );
-      }
-
-      htmlDoc(endoifyElement).insertBefore('head:first script:first');
-
-      return await prettierFormat(htmlDoc.html(), {
-        parser: 'html',
-        tabWidth: 2,
-      });
-    },
-  };
-}
