@@ -206,14 +206,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@babel/parser@npm:^7.23.0, @babel/parser@npm:^7.23.6, @babel/parser@npm:^7.24.4, @babel/parser@npm:^7.24.7, @babel/parser@npm:^7.25.0, @babel/parser@npm:^7.25.3":
-  version: 7.25.3
-  resolution: "@babel/parser@npm:7.25.3"
+"@babel/parser@npm:^7.23.0, @babel/parser@npm:^7.23.6, @babel/parser@npm:^7.24.7, @babel/parser@npm:^7.25.0, @babel/parser@npm:^7.25.3, @babel/parser@npm:^7.25.4":
+  version: 7.25.6
+  resolution: "@babel/parser@npm:7.25.6"
   dependencies:
-    "@babel/types": "npm:^7.25.2"
+    "@babel/types": "npm:^7.25.6"
   bin:
     parser: ./bin/babel-parser.js
-  checksum: 10/7bd57e89110bdc9cffe0ef2f2286f1cfb9bbb3aa1d9208c287e0bf6a1eb4cfe6ab33958876ebc59aafcbe3e2381c4449240fc7cc2ff32b79bc9db89cd52fc779
+  checksum: 10/830aab72116aa14eb8d61bfa8f9d69fc8f3a43d909ce993cb4350ae14d3af1a2f740a54410a22d821c48a253263643dfecbc094f9608e6a70ce9ff3c0bbfe91a
   languageName: node
   linkType: hard
 
@@ -243,14 +243,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@babel/types@npm:^7.17.0, @babel/types@npm:^7.23.0, @babel/types@npm:^7.24.0, @babel/types@npm:^7.24.7, @babel/types@npm:^7.25.0, @babel/types@npm:^7.25.2":
-  version: 7.25.2
-  resolution: "@babel/types@npm:7.25.2"
+"@babel/types@npm:^7.17.0, @babel/types@npm:^7.23.0, @babel/types@npm:^7.24.0, @babel/types@npm:^7.24.7, @babel/types@npm:^7.25.0, @babel/types@npm:^7.25.2, @babel/types@npm:^7.25.4, @babel/types@npm:^7.25.6":
+  version: 7.25.6
+  resolution: "@babel/types@npm:7.25.6"
   dependencies:
     "@babel/helper-string-parser": "npm:^7.24.8"
     "@babel/helper-validator-identifier": "npm:^7.24.7"
     to-fast-properties: "npm:^2.0.0"
-  checksum: 10/ccf5399db1dcd6dd87b84a6f7bc8dd241e04a326f4f038c973c26ccb69cd360c8f2276603f584c58fd94da95229313060b27baceb0d9b18a435742d3f616afd1
+  checksum: 10/7b54665e1b51f525fe0f451efdd9fe7a4a6dfba3fd4956c3530bc77336b66ffe3d78c093796ed044119b5d213176af7cf326f317a2057c538d575c6cefcb3562
   languageName: node
   linkType: hard
 
@@ -1251,24 +1251,35 @@ __metadata:
   resolution: "@ocap/extension@workspace:packages/extension"
   dependencies:
     "@arethetypeswrong/cli": "npm:^0.15.3"
-    "@endo/lockdown": "npm:^1.0.9"
+    "@endo/eventual-send": "npm:^1.2.4"
     "@endo/promise-kit": "npm:^1.1.4"
     "@metamask/auto-changelog": "npm:^3.4.4"
+    "@metamask/eslint-config": "npm:^13.0.0"
+    "@metamask/eslint-config-nodejs": "npm:^13.0.0"
+    "@metamask/eslint-config-typescript": "npm:^13.0.0"
     "@metamask/snaps-utils": "npm:^7.8.0"
     "@metamask/utils": "npm:^9.1.0"
     "@ocap/shims": "workspace:^"
     "@ocap/streams": "workspace:^"
     "@ocap/test-utils": "workspace:^"
     "@types/chrome": "npm:^0.0.268"
-    "@vitest/coverage-v8": "npm:^2.0.5"
+    "@typescript-eslint/eslint-plugin": "npm:^8.1.0"
+    "@typescript-eslint/parser": "npm:^8.1.0"
     cheerio: "npm:^1.0.0-rc.12"
-    deepmerge: "npm:^4.3.1"
+    depcheck: "npm:^1.4.7"
+    eslint: "npm:^8.57.0"
+    eslint-config-prettier: "npm:^8.8.0"
+    eslint-plugin-import-x: "npm:^0.5.1"
+    eslint-plugin-jsdoc: "npm:^47.0.2"
+    eslint-plugin-n: "npm:^16.6.2"
+    eslint-plugin-prettier: "npm:^4.2.1"
+    eslint-plugin-promise: "npm:^6.1.1"
+    eslint-plugin-vitest: "npm:^0.4.1"
     jsdom: "npm:^24.1.1"
     prettier: "npm:^2.7.1"
     rimraf: "npm:^6.0.1"
     ses: "npm:^1.7.0"
     typedoc: "npm:^0.24.8"
-    typedoc-plugin-missing-exports: "npm:^2.0.0"
     typescript: "npm:~5.5.4"
     vite: "npm:^5.3.5"
     vite-plugin-static-copy: "npm:^1.0.6"
@@ -1293,8 +1304,9 @@ __metadata:
     "@types/node": "npm:^18.18.14"
     "@typescript-eslint/eslint-plugin": "npm:^8.1.0"
     "@typescript-eslint/parser": "npm:^8.1.0"
+    "@vitest/coverage-v8": "npm:^2.0.5"
     "@yarnpkg/types": "npm:^4.0.0"
-    depcheck: "npm:^1.4.3"
+    depcheck: "npm:^1.4.7"
     eslint: "npm:^8.57.0"
     eslint-config-prettier: "npm:^8.8.0"
     eslint-plugin-import-x: "npm:^0.5.1"
@@ -1324,7 +1336,21 @@ __metadata:
     "@endo/eventual-send": "npm:^1.2.4"
     "@endo/lockdown": "npm:^1.0.9"
     "@metamask/auto-changelog": "npm:^3.4.4"
-    deepmerge: "npm:^4.3.1"
+    "@metamask/eslint-config": "npm:^13.0.0"
+    "@metamask/eslint-config-nodejs": "npm:^13.0.0"
+    "@metamask/eslint-config-typescript": "npm:^13.0.0"
+    "@typescript-eslint/eslint-plugin": "npm:^8.1.0"
+    "@typescript-eslint/parser": "npm:^8.1.0"
+    depcheck: "npm:^1.4.7"
+    eslint: "npm:^8.57.0"
+    eslint-config-prettier: "npm:^8.8.0"
+    eslint-plugin-import-x: "npm:^0.5.1"
+    eslint-plugin-jsdoc: "npm:^47.0.2"
+    eslint-plugin-n: "npm:^16.6.2"
+    eslint-plugin-prettier: "npm:^4.2.1"
+    eslint-plugin-promise: "npm:^6.1.1"
+    eslint-plugin-vitest: "npm:^0.4.1"
+    prettier: "npm:^2.7.1"
     rimraf: "npm:^6.0.1"
     ses: "npm:^1.7.0"
     typescript: "npm:~5.5.4"
@@ -1341,17 +1367,30 @@ __metadata:
     "@endo/promise-kit": "npm:^1.1.4"
     "@endo/stream": "npm:^1.2.2"
     "@metamask/auto-changelog": "npm:^3.4.4"
+    "@metamask/eslint-config": "npm:^13.0.0"
+    "@metamask/eslint-config-nodejs": "npm:^13.0.0"
+    "@metamask/eslint-config-typescript": "npm:^13.0.0"
     "@metamask/utils": "npm:^9.1.0"
     "@ocap/test-utils": "workspace:^"
     "@ts-bridge/cli": "npm:^0.3.0"
     "@ts-bridge/shims": "npm:^0.1.1"
     "@types/jsdom": "npm:^21.1.7"
-    "@vitest/coverage-v8": "npm:^2.0.5"
-    deepmerge: "npm:^4.3.1"
+    "@typescript-eslint/eslint-plugin": "npm:^8.1.0"
+    "@typescript-eslint/parser": "npm:^8.1.0"
+    depcheck: "npm:^1.4.7"
+    eslint: "npm:^8.57.0"
+    eslint-config-prettier: "npm:^8.8.0"
+    eslint-plugin-import-x: "npm:^0.5.1"
+    eslint-plugin-jsdoc: "npm:^47.0.2"
+    eslint-plugin-n: "npm:^16.6.2"
+    eslint-plugin-prettier: "npm:^4.2.1"
+    eslint-plugin-promise: "npm:^6.1.1"
+    eslint-plugin-vitest: "npm:^0.4.1"
     jsdom: "npm:^24.1.1"
+    prettier: "npm:^2.7.1"
     rimraf: "npm:^6.0.1"
+    ses: "npm:^1.7.0"
     typedoc: "npm:^0.24.8"
-    typedoc-plugin-missing-exports: "npm:^2.0.0"
     typescript: "npm:~5.5.4"
     vite: "npm:^5.3.5"
     vitest: "npm:^2.0.5"
@@ -1362,8 +1401,22 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@ocap/test-utils@workspace:packages/test-utils"
   dependencies:
+    "@metamask/eslint-config": "npm:^13.0.0"
+    "@metamask/eslint-config-nodejs": "npm:^13.0.0"
+    "@metamask/eslint-config-typescript": "npm:^13.0.0"
+    "@typescript-eslint/eslint-plugin": "npm:^8.1.0"
+    "@typescript-eslint/parser": "npm:^8.1.0"
+    depcheck: "npm:^1.4.7"
+    eslint: "npm:^8.57.0"
+    eslint-config-prettier: "npm:^8.8.0"
+    eslint-plugin-import-x: "npm:^0.5.1"
+    eslint-plugin-jsdoc: "npm:^47.0.2"
+    eslint-plugin-n: "npm:^16.6.2"
+    eslint-plugin-prettier: "npm:^4.2.1"
+    eslint-plugin-promise: "npm:^6.1.1"
+    eslint-plugin-vitest: "npm:^0.4.1"
+    prettier: "npm:^2.7.1"
     rimraf: "npm:^6.0.1"
-    ses: "npm:^1.7.0"
     typescript: "npm:~5.5.4"
     vitest: "npm:^2.0.5"
   languageName: unknown
@@ -2888,7 +2941,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"deepmerge@npm:^4.2.2, deepmerge@npm:^4.3.1":
+"deepmerge@npm:^4.2.2":
   version: 4.3.1
   resolution: "deepmerge@npm:4.3.1"
   checksum: 10/058d9e1b0ff1a154468bf3837aea436abcfea1ba1d165ddaaf48ca93765fdd01a30d33c36173da8fbbed951dd0a267602bc782fe288b0fc4b7e1e7091afc4529
@@ -2902,7 +2955,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"depcheck@npm:^1.4.3":
+"depcheck@npm:^1.4.7":
   version: 1.4.7
   resolution: "depcheck@npm:1.4.7"
   dependencies:
@@ -4751,13 +4804,13 @@ __metadata:
   linkType: hard
 
 "magicast@npm:^0.3.4":
-  version: 0.3.4
-  resolution: "magicast@npm:0.3.4"
+  version: 0.3.5
+  resolution: "magicast@npm:0.3.5"
   dependencies:
-    "@babel/parser": "npm:^7.24.4"
-    "@babel/types": "npm:^7.24.0"
+    "@babel/parser": "npm:^7.25.4"
+    "@babel/types": "npm:^7.25.4"
     source-map-js: "npm:^1.2.0"
-  checksum: 10/704f86639b01c8e063155408cb181d89d4444db3a4a473fb501107f30f19d9c39a159dd315ef9e54a22291c090170044efd9b49a9b3ab8d6deb948a9c99d90b3
+  checksum: 10/3a2dba6b0bdde957797361d09c7931ebdc1b30231705360eeb40ed458d28e1c3112841c3ed4e1b87ceb28f741e333c7673cd961193aa9fdb4f4946b202e6205a
   languageName: node
   linkType: hard
 
@@ -6466,15 +6519,6 @@ __metadata:
   version: 0.20.2
   resolution: "type-fest@npm:0.20.2"
   checksum: 10/8907e16284b2d6cfa4f4817e93520121941baba36b39219ea36acfe64c86b9dbc10c9941af450bd60832c8f43464974d51c0957f9858bc66b952b66b6914cbb9
-  languageName: node
-  linkType: hard
-
-"typedoc-plugin-missing-exports@npm:^2.0.0":
-  version: 2.3.0
-  resolution: "typedoc-plugin-missing-exports@npm:2.3.0"
-  peerDependencies:
-    typedoc: 0.24.x || 0.25.x
-  checksum: 10/83ff8affd82fa39a81931e825ef31b51b7470613c71601fde6ff413a5c7571e30734698092a38a437f12c5d3264010696ce9ca806d43485aa11e8208cb4cb323
   languageName: node
   linkType: hard
 
