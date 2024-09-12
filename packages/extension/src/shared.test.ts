@@ -2,34 +2,9 @@ import './endoify.js';
 import { delay } from '@ocap/test-utils';
 import { vi, describe, it, expect } from 'vitest';
 
-import { isWrappedIframeMessage, makeHandledCallback } from './shared.js';
+import { makeCounter, makeHandledCallback } from './shared.js';
 
 describe('shared', () => {
-  describe('isWrappedIframeMessage', () => {
-    it('returns true for valid messages', () => {
-      expect(
-        isWrappedIframeMessage({
-          id: '1',
-          message: { type: 'evaluate', data: '1 + 1' },
-        }),
-      ).toBe(true);
-    });
-
-    it('returns false for invalid messages', () => {
-      const invalidMessages = [
-        {},
-        { id: '1' },
-        { message: { type: 'evaluate' } },
-        { id: '1', message: { type: 'evaluate' } },
-        { id: '1', message: { type: 'evaluate', data: 1 } },
-      ];
-
-      invalidMessages.forEach((message) => {
-        expect(isWrappedIframeMessage(message)).toBe(false);
-      });
-    });
-  });
-
   describe('makeHandledCallback', () => {
     it('returns a function', () => {
       const callback = makeHandledCallback(async () => Promise.resolve());
@@ -60,6 +35,27 @@ describe('shared', () => {
       expect(consoleErrorSpy).toHaveBeenCalledWith(
         expect.objectContaining({ message: error.message }),
       );
+    });
+  });
+
+  describe('makeCounter', () => {
+    it('starts at 1 by default', () => {
+      const counter = makeCounter();
+      expect(counter()).toBe(1);
+    });
+
+    it('starts counting from the supplied argument', () => {
+      const start = 50;
+      const counter = makeCounter(start);
+      expect(counter()).toStrictEqual(start + 1);
+    });
+
+    it('increments convincingly', () => {
+      const counter = makeCounter();
+      const first = counter();
+      expect(counter()).toStrictEqual(first + 1);
+      expect(counter()).toStrictEqual(first + 2);
+      expect(counter()).toStrictEqual(first + 3);
     });
   });
 });

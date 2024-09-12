@@ -1,46 +1,55 @@
+import { makeCapTP } from '@endo/captp';
+import { E } from '@endo/eventual-send';
 import type { PromiseKit } from '@endo/promise-kit';
 import { makePromiseKit } from '@endo/promise-kit';
 import { createWindow } from '@metamask/snaps-utils';
-import type { MessagePortReader, MessagePortStreamPair } from '@ocap/streams';
+import type { StreamPair, Reader } from '@ocap/streams';
 import {
   initializeMessageChannel,
   makeMessagePortStreamPair,
 } from '@ocap/streams';
 
-import type { IframeMessage, WrappedIframeMessage } from './shared.js';
-import { Command, isWrappedIframeMessage } from './shared.js';
+import type { StreamEnvelope } from './envelope.js';
+import { EnvelopeLabel, isStreamEnvelope } from './envelope.js';
+import type { CapTpPayload, IframeMessage, MessageId } from './message.js';
+import { Command } from './message.js';
+import { makeCounter, type VatId } from './shared.js';
 
 const IFRAME_URI = 'iframe.html';
 
 /**
  * Get a DOM id for our iframes, for greater collision resistance.
  *
- * @param id - The id to base the DOM id on.
+ * @param id - The vat id to base the DOM id on.
  * @returns The DOM id.
  */
-const getHtmlId = (id: string): string => `ocap-iframe-${id}`;
+const getHtmlId = (id: VatId): string => `ocap-iframe-${id}`;
 
 type PromiseCallbacks = Omit<PromiseKit<unknown>, 'promise'>;
 
 type GetPort = (targetWindow: Window) => Promise<MessagePort>;
 
+type VatRecord = {
+  streams: StreamPair<StreamEnvelope>;
+  messageCounter: () => number;
+  unresolvedMessages: Map<MessageId, PromiseCallbacks>;
+  capTp?: ReturnType<typeof makeCapTP>;
+};
+
 /**
  * A singleton class to manage and message iframes.
  */
 export class IframeManager {
-  #currentId: number;
+  readonly #vats: Map<VatId, VatRecord>;
 
-  readonly #unresolvedMessages: Map<string, PromiseCallbacks>;
-
-  readonly #vats: Map<string, MessagePortStreamPair<WrappedIframeMessage>>;
+  readonly #vatIdCounter: () => number;
 
   /**
    * Create a new IframeManager.
    */
   constructor() {
-    this.#currentId = 0;
     this.#vats = new Map();
-    this.#unresolvedMessages = new Map();
+    this.#vatIdCounter = makeCounter();
   }
 
   /**
@@ -49,20 +58,24 @@ export class IframeManager {
    * @param args - Options bag.
    * @param args.id - The id of the vat to create.
    * @param args.getPort - A function to get the message port for the iframe.
-   * @returns The iframe's content window, and its internal id.
+   * @returns The iframe's content window, and the id of the associated vat.
    */
   async create(
-    args: { id?: string; getPort?: GetPort } = {},
-  ): Promise<readonly [Window, string]> {
-    const id = args.id ?? this.#nextId();
+    args: { id?: VatId; getPort?: GetPort } = {},
+  ): Promise<readonly [Window, VatId]> {
+    const id = args.id ?? this.#nextVatId();
     const getPort = args.getPort ?? initializeMessageChannel;
 
     const newWindow = await createWindow(IFRAME_URI, getHtmlId(id));
     const port = await getPort(newWindow);
-    const streams = makeMessagePortStreamPair<WrappedIframeMessage>(port);
-    this.#vats.set(id, streams);
+    const streams = makeMessagePortStreamPair<StreamEnvelope>(port);
+    this.#vats.set(id, {
+      streams,
+      messageCounter: makeCounter(),
+      unresolvedMessages: new Map(),
+    });
     /* v8 ignore next 4: Not known to be possible. */
-    this.#receiveMessages(streams.reader).catch((error) => {
+    this.#receiveMessages(id, streams.reader).catch((error) => {
       console.error(`Unexpected read error from vat "${id}"`, error);
       this.delete(id).catch(() => undefined);
     });
@@ -73,19 +86,22 @@ export class IframeManager {
   }
 
   /**
-   * Delete an iframe.
+   * Delete a vat and its associated iframe.
    *
-   * @param id - The id of the iframe to delete.
+   * @param id - The id of the vat to delete.
    * @returns A promise that resolves when the iframe is deleted.
    */
-  async delete(id: string): Promise<void> {
-    const streams = this.#vats.get(id);
-    if (streams === undefined) {
+  async delete(id: VatId): Promise<void> {
+    const vat = this.#vats.get(id);
+    if (vat === undefined) {
       return undefined;
     }
 
-    const closeP = streams.return();
+    const closeP = vat.streams.return();
     // TODO: Handle orphaned messages
+    for (const [messageId] of vat.unresolvedMessages) {
+      console.warn(`Unhandled orphaned message: ${messageId}`);
+    }
     this.#vats.delete(id);
 
     const iframe = document.getElementById(getHtmlId(id));
@@ -100,35 +116,61 @@ export class IframeManager {
   }
 
   /**
-   * Send a message to an iframe.
+   * Send a message to a vat.
    *
-   * @param id - The id of the iframe to send the message to.
+   * @param id - The id of the vat to send the message to.
    * @param message - The message to send.
    * @returns A promise that resolves the response to the message.
    */
-  async sendMessage(
-    id: string,
-    message: IframeMessage<Command, string | null>,
-  ): Promise<unknown> {
-    const streams = this.#vats.get(id);
-    if (streams === undefined) {
-      throw new Error(`No vat with id "${id}"`);
-    }
-
+  async sendMessage(id: VatId, message: IframeMessage): Promise<unknown> {
+    const vat = this.#expectGetVat(id);
     const { promise, reject, resolve } = makePromiseKit();
-    const messageId = this.#nextId();
-    this.#unresolvedMessages.set(messageId, { reject, resolve });
-    await streams.writer.next({ id: messageId, message });
+    const messageId = this.#nextMessageId(id);
+
+    vat.unresolvedMessages.set(messageId, { reject, resolve });
+    await vat.streams.writer.next({
+      label: EnvelopeLabel.Command,
+      content: { id: messageId, message },
+    });
     return promise;
   }
 
+  async callCapTp(id: VatId, payload: CapTpPayload): Promise<unknown> {
+    const { capTp } = this.#expectGetVat(id);
+    if (capTp === undefined) {
+      throw new Error(`Vat with id "${id}" does not have a CapTP connection.`);
+    }
+    return E(capTp.getBootstrap())[payload.method](...payload.params);
+  }
+
+  async makeCapTp(id: VatId): Promise<unknown> {
+    const vat = this.#expectGetVat(id);
+    if (vat.capTp !== undefined) {
+      throw new Error(`Vat with id "${id}" already has a CapTP connection.`);
+    }
+
+    // Handle writes here. #receiveMessages() handles reads.
+    const { writer } = vat.streams;
+    // https://github.com/endojs/endo/issues/2412
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises
+    const ctp = makeCapTP(id, async (content: unknown) => {
+      console.log('CapTP to vat', JSON.stringify(content, null, 2));
+      await writer.next({ label: EnvelopeLabel.CapTp, content });
+    });
+
+    vat.capTp = ctp;
+    return this.sendMessage(id, { type: Command.CapTpInit, data: null });
+  }
+
   async #receiveMessages(
-    reader: MessagePortReader<WrappedIframeMessage>,
+    vatId: VatId,
+    reader: Reader<StreamEnvelope>,
   ): Promise<void> {
+    const vat = this.#expectGetVat(vatId);
     for await (const rawMessage of reader) {
       console.debug('Offscreen received message', rawMessage);
 
-      if (!isWrappedIframeMessage(rawMessage)) {
+      if (!isStreamEnvelope(rawMessage)) {
         console.warn(
           'Offscreen received message with unexpected format',
           rawMessage,
@@ -136,20 +178,56 @@ export class IframeManager {
         return;
       }
 
-      const { id, message } = rawMessage;
-      const promiseCallbacks = this.#unresolvedMessages.get(id);
-      if (promiseCallbacks === undefined) {
-        console.error(`No unresolved message with id "${id}".`);
-        continue;
+      switch (rawMessage.label) {
+        case EnvelopeLabel.CapTp: {
+          console.log(
+            'CapTP from vat',
+            JSON.stringify(rawMessage.content, null, 2),
+          );
+          const { capTp } = this.#expectGetVat(vatId);
+          if (capTp !== undefined) {
+            capTp.dispatch(rawMessage.content);
+          }
+          break;
+        }
+        case EnvelopeLabel.Command: {
+          const { id, message } = rawMessage.content;
+          const promiseCallbacks = vat.unresolvedMessages.get(id);
+          if (promiseCallbacks === undefined) {
+            console.error(`No unresolved message with id "${id}".`);
+          } else {
+            vat.unresolvedMessages.delete(id);
+            promiseCallbacks.resolve(message.data);
+          }
+          break;
+        }
+        /* v8 ignore next 3: Exhaustiveness check */
+        default:
+          // @ts-expect-error The type of `rawMessage` is `never`, but this could happen at runtime.
+          throw new Error(`Unexpected message label "${rawMessage.label}".`);
       }
-
-      promiseCallbacks.resolve(message.data);
     }
   }
 
-  #nextId(): string {
-    const id = this.#currentId;
-    this.#currentId += 1;
-    return String(id);
+  /**
+   * Get a vat record by id, or throw an error if it doesn't exist.
+   *
+   * @param id - The id of the vat to get.
+   * @returns The vat record.
+   */
+  #expectGetVat(id: VatId): VatRecord {
+    const vat = this.#vats.get(id);
+    if (vat === undefined) {
+      throw new Error(`No vat with id "${id}"`);
+    }
+    return vat;
   }
+
+  readonly #nextMessageId = (id: VatId): MessageId => {
+    return `${id}-${this.#expectGetVat(id).messageCounter()}`;
+  };
+
+  readonly #nextVatId = (): MessageId => {
+    return `${this.#vatIdCounter()}`;
+  };
 }

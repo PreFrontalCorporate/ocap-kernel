@@ -3,8 +3,10 @@ import * as snapsUtils from '@metamask/snaps-utils';
 import { delay, makePromiseKitMock } from '@ocap/test-utils';
 import { vi, describe, it, expect } from 'vitest';
 
+import { EnvelopeLabel } from './envelope.js';
 import { IframeManager } from './iframe-manager.js';
-import { Command } from './shared.js';
+import type { IframeMessage } from './message.js';
+import { Command } from './message.js';
 
 vi.mock('@endo/promise-kit', () => makePromiseKitMock());
 
@@ -34,7 +36,7 @@ describe('IframeManager', () => {
       expect(id).toBeTypeOf('string');
       expect(sendMessageSpy).toHaveBeenCalledOnce();
       expect(sendMessageSpy).toHaveBeenCalledWith(id, {
-        type: 'ping',
+        type: Command.Ping,
         data: null,
       });
     });
@@ -59,7 +61,7 @@ describe('IframeManager', () => {
       expect(returnedId).toBe(id);
       expect(sendMessageSpy).toHaveBeenCalledOnce();
       expect(sendMessageSpy).toHaveBeenCalledWith(id, {
-        type: 'ping',
+        type: Command.Ping,
         data: null,
       });
     });
@@ -89,7 +91,7 @@ describe('IframeManager', () => {
       expect(id).toBeTypeOf('string');
       expect(sendMessageSpy).toHaveBeenCalledOnce();
       expect(sendMessageSpy).toHaveBeenCalledWith(id, {
-        type: 'ping',
+        type: Command.Ping,
         data: null,
       });
     });
@@ -126,6 +128,297 @@ describe('IframeManager', () => {
 
       expect(removeSpy).not.toHaveBeenCalled();
     });
+
+    it('warns of unresolved messages', async () => {
+      const id = 'foo';
+      const messageCount = 7;
+      const awaitCount = 2;
+
+      vi.mocked(snapsUtils.createWindow).mockImplementationOnce(vi.fn());
+
+      const manager = new IframeManager();
+
+      vi.spyOn(manager, 'sendMessage').mockImplementationOnce(vi.fn());
+
+      const { port1, port2 } = new MessageChannel();
+
+      await manager.create({ id, getPort: makeGetPort(port1) });
+
+      const warnSpy = vi.spyOn(console, 'warn');
+
+      const messagePromises = Array(messageCount)
+        .fill(0)
+        .map(async (_, i) =>
+          manager.sendMessage(id, { type: Command.Evaluate, data: `${i}+1` }),
+        );
+
+      // resolve the first `awaitCount` promises
+      for (let i = 0; i < awaitCount; i++) {
+        port2.postMessage({
+          done: false,
+          value: {
+            label: EnvelopeLabel.Command,
+            content: {
+              id: `foo-${i + 1}`,
+              message: {
+                type: Command.Evaluate,
+                data: `${i + 1}`,
+              },
+            },
+          },
+        });
+        await messagePromises[i];
+      }
+
+      await manager.delete(id);
+      expect(warnSpy).toHaveBeenCalledTimes(messageCount - awaitCount);
+      // This test assumes messageIds begin at 1, not 0
+      expect(warnSpy).toHaveBeenLastCalledWith(
+        `Unhandled orphaned message: ${id}-${messageCount}`,
+      );
+    });
+  });
+
+  describe('capTp', () => {
+    it('throws if called before initialization', async () => {
+      const mockWindow = {};
+      vi.mocked(snapsUtils.createWindow).mockResolvedValueOnce(
+        mockWindow as Window,
+      );
+      const manager = new IframeManager();
+      vi.spyOn(manager, 'sendMessage').mockImplementation(vi.fn());
+      const [, id] = await manager.create({ getPort: makeGetPort() });
+
+      await expect(
+        async () =>
+          await manager.callCapTp(id, {
+            method: 'whatIsTheGreatFrangooly',
+            params: [],
+          }),
+      ).rejects.toThrow(/does not have a CapTP connection\.$/u);
+    });
+
+    it('throws if initialization is called twice on the same vat', async () => {
+      const id = 'frangooly';
+
+      const capTpInit = {
+        query: {
+          label: EnvelopeLabel.Command,
+          content: {
+            id: `${id}-1`,
+            message: {
+              data: null,
+              type: 'makeCapTp',
+            },
+          },
+        },
+        response: {
+          label: EnvelopeLabel.Command,
+          content: {
+            id: `${id}-1`,
+            message: {
+              type: 'makeCapTp',
+              data: null,
+            },
+          },
+        },
+      };
+
+      vi.mocked(snapsUtils.createWindow).mockImplementationOnce(vi.fn());
+
+      const { port1, port2 } = new MessageChannel();
+      const port1PostMessageSpy = vi
+        .spyOn(port1, 'postMessage')
+        .mockImplementation(vi.fn());
+
+      let port1PostMessageCallCounter: number = 0;
+      const expectSendMessageToHaveBeenCalledOnceMoreWith = (
+        expectation: unknown,
+      ): void => {
+        port1PostMessageCallCounter += 1;
+        expect(port1PostMessageSpy).toHaveBeenCalledTimes(
+          port1PostMessageCallCounter,
+        );
+        expect(port1PostMessageSpy).toHaveBeenLastCalledWith({
+          done: false,
+          value: expectation,
+        });
+      };
+
+      const mockReplyWith = (message: unknown): void =>
+        port2.postMessage({
+          done: false,
+          value: message,
+        });
+
+      const manager = new IframeManager();
+
+      vi.spyOn(manager, 'sendMessage').mockImplementationOnce(vi.fn());
+
+      await manager.create({ id, getPort: makeGetPort(port1) });
+
+      // Init CapTP connection
+      const initCapTpPromise = manager.makeCapTp(id);
+
+      expectSendMessageToHaveBeenCalledOnceMoreWith(capTpInit.query);
+      mockReplyWith(capTpInit.response);
+
+      await initCapTpPromise.then((resolvedValue) =>
+        console.debug(`CapTp initialized: ${JSON.stringify(resolvedValue)}`),
+      );
+
+      await expect(async () => await manager.makeCapTp(id)).rejects.toThrow(
+        /already has a CapTP connection\./u,
+      );
+    });
+
+    it('does TheGreatFrangooly', async () => {
+      const id = 'frangooly';
+
+      const capTpInit = {
+        query: {
+          label: EnvelopeLabel.Command,
+          content: {
+            id: `${id}-1`,
+            message: {
+              data: null,
+              type: 'makeCapTp',
+            },
+          },
+        },
+        response: {
+          label: EnvelopeLabel.Command,
+          content: {
+            id: `${id}-1`,
+            message: {
+              type: 'makeCapTp',
+              data: null,
+            },
+          },
+        },
+      };
+
+      const greatFrangoolyBootstrap = {
+        query: {
+          label: 'capTp',
+          content: {
+            epoch: 0,
+            questionID: 'q-1',
+            type: 'CTP_BOOTSTRAP',
+          },
+        },
+        response: {
+          label: 'capTp',
+          content: {
+            type: 'CTP_RETURN',
+            epoch: 0,
+            answerID: 'q-1',
+            result: {
+              body: '{"@qclass":"slot","iface":"Alleged: TheGreatFrangooly","index":0}',
+              slots: ['o+1'],
+            },
+          },
+        },
+      };
+
+      const greatFrangoolyCall = {
+        query: {
+          label: 'capTp',
+          content: {
+            type: 'CTP_CALL',
+            epoch: 0,
+            method: {
+              body: '["whatIsTheGreatFrangooly",[]]',
+              slots: [],
+            },
+            questionID: 'q-2',
+            target: 'o-1',
+          },
+        },
+        response: {
+          label: 'capTp',
+          content: {
+            type: 'CTP_RETURN',
+            epoch: 0,
+            answerID: 'q-2',
+            result: {
+              body: '"Crowned with Chaos"',
+              slots: [],
+            },
+          },
+        },
+      };
+
+      vi.mocked(snapsUtils.createWindow).mockImplementationOnce(vi.fn());
+
+      const { port1, port2 } = new MessageChannel();
+      const port1PostMessageSpy = vi
+        .spyOn(port1, 'postMessage')
+        .mockImplementation(vi.fn());
+
+      let port1PostMessageCallCounter: number = 0;
+      const expectSendMessageToHaveBeenCalledOnceMoreWith = (
+        expectation: unknown,
+      ): void => {
+        port1PostMessageCallCounter += 1;
+        expect(port1PostMessageSpy).toHaveBeenCalledTimes(
+          port1PostMessageCallCounter,
+        );
+        expect(port1PostMessageSpy).toHaveBeenLastCalledWith({
+          done: false,
+          value: expectation,
+        });
+      };
+
+      const mockReplyWith = (message: unknown): void =>
+        port2.postMessage({
+          done: false,
+          value: message,
+        });
+
+      const manager = new IframeManager();
+
+      vi.spyOn(manager, 'sendMessage').mockImplementationOnce(vi.fn());
+
+      await manager.create({ id, getPort: makeGetPort(port1) });
+
+      // Init CapTP connection
+      const initCapTpPromise = manager.makeCapTp(id);
+
+      expectSendMessageToHaveBeenCalledOnceMoreWith(capTpInit.query);
+      mockReplyWith(capTpInit.response);
+
+      await initCapTpPromise.then((resolvedValue) =>
+        console.debug(`CapTp initialized: ${JSON.stringify(resolvedValue)}`),
+      );
+
+      // Bootstrap TheGreatFrangooly...
+      const callCapTpResponse = manager.callCapTp(id, {
+        method: 'whatIsTheGreatFrangooly',
+        params: [],
+      });
+
+      expectSendMessageToHaveBeenCalledOnceMoreWith(
+        greatFrangoolyBootstrap.query,
+      );
+      mockReplyWith(greatFrangoolyBootstrap.response);
+
+      await delay().then(() =>
+        console.debug('TheGreatFrangooly bootstrapped...'),
+      );
+
+      // ...and call it.
+      expectSendMessageToHaveBeenCalledOnceMoreWith(greatFrangoolyCall.query);
+      mockReplyWith(greatFrangoolyCall.response);
+
+      await callCapTpResponse.then((resolvedValue) =>
+        console.debug(
+          `TheGreatFrangooly called: ${JSON.stringify(resolvedValue)}`,
+        ),
+      );
+
+      expect(await callCapTpResponse).equals('Crowned with Chaos');
+    });
   });
 
   describe('sendMessage', () => {
@@ -142,39 +435,48 @@ describe('IframeManager', () => {
       const id = 'foo';
       await manager.create({ id, getPort: makeGetPort(port1) });
 
-      const message = { type: Command.Evaluate, data: '2+2' };
+      const message: IframeMessage = { type: Command.Evaluate, data: '2+2' };
+      const response: IframeMessage = { type: Command.Evaluate, data: '4' };
 
+      // sendMessage wraps the content in a EnvelopeLabel.Command envelope
       const messagePromise = manager.sendMessage(id, message);
       const messageId: string | undefined =
-        portPostMessageSpy.mock.lastCall?.[0]?.value?.id;
+        portPostMessageSpy.mock.lastCall?.[0]?.value?.content?.id;
       expect(messageId).toBeTypeOf('string');
 
+      // postMessage sends the json directly, so we have to wrap it in an envelope here
       port2.postMessage({
         done: false,
         value: {
-          id: messageId,
-          message: {
-            type: Command.Evaluate,
-            data: '4',
+          label: EnvelopeLabel.Command,
+          content: {
+            id: messageId,
+            message: response,
           },
         },
       });
 
+      // awaiting event loop should resolve the messagePromise
+      expect(await messagePromise).toBe(response.data);
+
+      // messagePromise doesn't resolve until message was posted
       expect(portPostMessageSpy).toHaveBeenCalledOnce();
       expect(portPostMessageSpy).toHaveBeenCalledWith({
         done: false,
         value: {
-          id: messageId,
-          message,
+          label: EnvelopeLabel.Command,
+          content: {
+            id: messageId,
+            message,
+          },
         },
       });
-      expect(await messagePromise).toBe('4');
     });
 
     it('throws if iframe not found', async () => {
       const manager = new IframeManager();
       const id = 'foo';
-      const message = { type: Command.Ping, data: null };
+      const message: IframeMessage = { type: Command.Ping, data: null };
 
       await expect(manager.sendMessage(id, message)).rejects.toThrow(
         `No vat with id "${id}"`,
@@ -219,10 +521,13 @@ describe('IframeManager', () => {
       port2.postMessage({
         done: false,
         value: {
-          id: 'foo',
-          message: {
-            type: Command.Evaluate,
-            data: '"bar"',
+          label: EnvelopeLabel.Command,
+          content: {
+            id: 'foo',
+            message: {
+              type: Command.Evaluate,
+              data: '"bar"',
+            },
           },
         },
       });

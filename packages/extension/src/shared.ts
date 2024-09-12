@@ -1,40 +1,4 @@
-import { isObject } from '@metamask/utils';
-
-export enum Command {
-  Evaluate = 'evaluate',
-  Ping = 'ping',
-}
-
-export type ExtensionMessage<
-  Type extends Command,
-  Data extends null | string | unknown[] | Record<string, unknown>,
-> = {
-  type: Type;
-  target: 'background' | 'offscreen';
-  data: Data;
-};
-
-export type IframeMessage<
-  Type extends Command,
-  Data extends null | string | unknown[] | Record<string, unknown>,
-> = {
-  type: Type;
-  data: Data;
-};
-
-export type WrappedIframeMessage = {
-  id: string;
-  message: IframeMessage<Command, string | null>;
-};
-
-export const isWrappedIframeMessage = (
-  value: unknown,
-): value is WrappedIframeMessage =>
-  isObject(value) &&
-  typeof value.id === 'string' &&
-  isObject(value.message) &&
-  typeof value.message.type === 'string' &&
-  (typeof value.message.data === 'string' || value.message.data === null);
+export type VatId = string;
 
 /**
  * Wrap an async callback to ensure any errors are at least logged.
@@ -48,5 +12,19 @@ export const makeHandledCallback = <Args extends unknown[]>(
   return (...args: Args): void => {
     // eslint-disable-next-line n/no-callback-literal, n/callback-return
     callback(...args).catch(console.error);
+  };
+};
+
+/**
+ * A simple counter which increments and returns when called.
+ *
+ * @param start - One less than the first returned number.
+ * @returns A counter.
+ */
+export const makeCounter = (start: number = 0) => {
+  let counter: number = start;
+  return () => {
+    counter += 1;
+    return counter;
   };
 };

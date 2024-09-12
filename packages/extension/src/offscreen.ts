@@ -1,6 +1,7 @@
 import { IframeManager } from './iframe-manager.js';
-import type { ExtensionMessage } from './shared.js';
-import { Command, makeHandledCallback } from './shared.js';
+import type { ExtensionMessage } from './message.js';
+import { Command, ExtensionMessageTarget } from './message.js';
+import { makeHandledCallback } from './shared.js';
 
 main().catch(console.error);
 
@@ -11,12 +12,14 @@ async function main(): Promise<void> {
   // Hard-code a single iframe for now.
   const IFRAME_ID = 'default';
   const iframeManager = new IframeManager();
-  const iframeReadyP = iframeManager.create({ id: IFRAME_ID });
+  const iframeReadyP = iframeManager
+    .create({ id: IFRAME_ID })
+    .then(async () => iframeManager.makeCapTp(IFRAME_ID));
 
   // Handle messages from the background service worker
   chrome.runtime.onMessage.addListener(
-    makeHandledCallback(async (message: ExtensionMessage<Command, string>) => {
-      if (message.target !== 'offscreen') {
+    makeHandledCallback(async (message: ExtensionMessage) => {
+      if (message.target !== ExtensionMessageTarget.Offscreen) {
         console.warn(
           `Offscreen received message with unexpected target: "${message.target}"`,
         );
@@ -29,11 +32,21 @@ async function main(): Promise<void> {
         case Command.Evaluate:
           await reply(Command.Evaluate, await evaluate(message.data));
           break;
+        case Command.CapTpCall: {
+          const result = await iframeManager.callCapTp(IFRAME_ID, message.data);
+          await reply(Command.CapTpCall, JSON.stringify(result, null, 2));
+          break;
+        }
+        case Command.CapTpInit:
+          await iframeManager.makeCapTp(IFRAME_ID);
+          await reply(Command.CapTpInit, '~~~ CapTP Initialized ~~~');
+          break;
         case Command.Ping:
           await reply(Command.Ping, 'pong');
           break;
         default:
           console.error(
+            // @ts-expect-error The type of `message` is `never`, but this could happen at runtime.
             // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
             `Offscreen received unexpected message type: "${message.type}"`,
           );
@@ -50,7 +63,7 @@ async function main(): Promise<void> {
   async function reply(type: Command, data?: string): Promise<void> {
     await chrome.runtime.sendMessage({
       data: data ?? null,
-      target: 'background',
+      target: ExtensionMessageTarget.Background,
       type,
     });
   }

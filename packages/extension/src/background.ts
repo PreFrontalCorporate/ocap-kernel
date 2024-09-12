@@ -1,11 +1,18 @@
-import './background-trusted-prelude.js';
-import type { ExtensionMessage } from './shared.js';
-import { Command, makeHandledCallback } from './shared.js';
+import type { Json } from '@metamask/utils';
 
-// globalThis.kernel will exist due to dev-console.js
+import './background-trusted-prelude.js';
+import type { ExtensionMessage } from './message.js';
+import { Command, ExtensionMessageTarget } from './message.js';
+import { makeHandledCallback } from './shared.js';
+
+// globalThis.kernel will exist due to dev-console.js in background-trusted-prelude.js
 Object.defineProperties(globalThis.kernel, {
-  sendMessage: {
-    value: sendMessage,
+  capTpCall: {
+    value: async (method: string, params: Json[]) =>
+      sendMessage(Command.CapTpCall, { method, params }),
+  },
+  capTpInit: {
+    value: async () => sendMessage(Command.CapTpInit),
   },
   evaluate: {
     value: async (source: string) => sendMessage(Command.Evaluate, source),
@@ -13,7 +20,11 @@ Object.defineProperties(globalThis.kernel, {
   ping: {
     value: async () => sendMessage(Command.Ping),
   },
+  sendMessage: {
+    value: sendMessage,
+  },
 });
+harden(globalThis.kernel);
 
 const OFFSCREEN_DOCUMENT_PATH = '/offscreen.html';
 
@@ -29,12 +40,12 @@ chrome.action.onClicked.addListener(() => {
  * @param data - The message data.
  * @param data.name - The name to include in the message.
  */
-async function sendMessage(type: string, data?: string): Promise<void> {
+async function sendMessage(type: string, data?: Json): Promise<void> {
   await provideOffScreenDocument();
 
   await chrome.runtime.sendMessage({
     type,
-    target: 'offscreen',
+    target: ExtensionMessageTarget.Offscreen,
     data: data ?? null,
   });
 }
@@ -54,8 +65,8 @@ async function provideOffScreenDocument(): Promise<void> {
 
 // Handle replies from the offscreen document
 chrome.runtime.onMessage.addListener(
-  makeHandledCallback(async (message: ExtensionMessage<Command, string>) => {
-    if (message.target !== 'background') {
+  makeHandledCallback(async (message: ExtensionMessage) => {
+    if (message.target !== ExtensionMessageTarget.Background) {
       console.warn(
         `Background received message with unexpected target: "${message.target}"`,
       );
@@ -64,25 +75,17 @@ chrome.runtime.onMessage.addListener(
 
     switch (message.type) {
       case Command.Evaluate:
+      case Command.CapTpCall:
+      case Command.CapTpInit:
       case Command.Ping:
         console.log(message.data);
-        await closeOffscreenDocument();
         break;
       default:
         console.error(
+          // @ts-expect-error The type of `message` is `never`, but this could happen at runtime.
           // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
           `Background received unexpected message type: "${message.type}"`,
         );
     }
   }),
 );
-
-/**
- * Close the offscreen document if it exists.
- */
-async function closeOffscreenDocument(): Promise<void> {
-  if (!(await chrome.offscreen.hasDocument())) {
-    return;
-  }
-  await chrome.offscreen.closeDocument();
-}
