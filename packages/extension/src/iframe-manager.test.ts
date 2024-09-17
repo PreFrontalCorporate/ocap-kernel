@@ -3,10 +3,10 @@ import * as snapsUtils from '@metamask/snaps-utils';
 import { delay, makePromiseKitMock } from '@ocap/test-utils';
 import { vi, describe, it, expect } from 'vitest';
 
-import { EnvelopeLabel } from './envelope.js';
 import { IframeManager } from './iframe-manager.js';
 import type { IframeMessage } from './message.js';
 import { Command } from './message.js';
+import { wrapCommand, wrapCapTp } from './stream-envelope.js';
 
 vi.mock('@endo/promise-kit', () => makePromiseKitMock());
 
@@ -68,12 +68,17 @@ describe('IframeManager', () => {
 
     it('creates a new iframe with the default getPort function', async () => {
       vi.resetModules();
-      vi.doMock('@ocap/streams', () => ({
-        initializeMessageChannel: vi.fn(),
-        makeMessagePortStreamPair: vi.fn(() => ({ reader: {}, writer: {} })),
-        MessagePortReader: class Mock1 {},
-        MessagePortWriter: class Mock2 {},
-      }));
+      vi.doMock('@ocap/streams', async (importOriginal) => {
+        // @ts-expect-error This import is known to exist, and the linter erases the appropriate assertion.
+        const { makeStreamEnvelopeKit } = await importOriginal();
+        return {
+          initializeMessageChannel: vi.fn(),
+          makeMessagePortStreamPair: vi.fn(() => ({ reader: {}, writer: {} })),
+          MessagePortReader: class Mock1 {},
+          MessagePortWriter: class Mock2 {},
+          makeStreamEnvelopeKit,
+        };
+      });
       const IframeManager2 = (await import('./iframe-manager.js'))
         .IframeManager;
 
@@ -143,16 +148,13 @@ describe('IframeManager', () => {
       const postMessage = (i: number): void => {
         port2.postMessage({
           done: false,
-          value: {
-            label: EnvelopeLabel.Command,
-            content: {
-              id: `foo-${i + 1}`,
-              message: {
-                type: Command.Evaluate,
-                data: `${i + 1}`,
-              },
+          value: wrapCommand({
+            id: `foo-${i + 1}`,
+            message: {
+              type: Command.Evaluate,
+              data: `${i + 1}`,
             },
-          },
+          }),
         });
       };
 
@@ -181,6 +183,38 @@ describe('IframeManager', () => {
   });
 
   describe('capTp', () => {
+    it('calls console.warn when receiving a capTp envelope before initialization', async () => {
+      const id = 'foo';
+
+      vi.mocked(snapsUtils.createWindow).mockImplementationOnce(vi.fn());
+      const warnSpy = vi.spyOn(console, 'warn');
+
+      const manager = new IframeManager();
+      vi.spyOn(manager, 'sendMessage').mockImplementationOnce(vi.fn());
+
+      const { port1, port2 } = new MessageChannel();
+
+      await manager.create({ id, getPort: makeGetPort(port1) });
+
+      const envelope = wrapCapTp({
+        epoch: 0,
+        questionID: 'q-1',
+        type: 'CTP_BOOTSTRAP',
+      });
+
+      port2.postMessage({
+        done: false,
+        value: envelope,
+      });
+
+      await delay();
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        'Stream envelope handler received an envelope with known but unexpected label',
+        envelope,
+      );
+    });
+
     it('throws if called before initialization', async () => {
       const mockWindow = {};
       vi.mocked(snapsUtils.createWindow).mockResolvedValueOnce(
@@ -203,26 +237,20 @@ describe('IframeManager', () => {
       const id = 'frangooly';
 
       const capTpInit = {
-        query: {
-          label: EnvelopeLabel.Command,
-          content: {
-            id: `${id}-1`,
-            message: {
-              data: null,
-              type: 'makeCapTp',
-            },
+        query: wrapCommand({
+          id: `${id}-1`,
+          message: {
+            data: null,
+            type: Command.CapTpInit,
           },
-        },
-        response: {
-          label: EnvelopeLabel.Command,
-          content: {
-            id: `${id}-1`,
-            message: {
-              type: 'makeCapTp',
-              data: null,
-            },
+        }),
+        response: wrapCommand({
+          id: `${id}-1`,
+          message: {
+            type: Command.CapTpInit,
+            data: null,
           },
-        },
+        }),
       };
 
       vi.mocked(snapsUtils.createWindow).mockImplementationOnce(vi.fn());
@@ -277,77 +305,59 @@ describe('IframeManager', () => {
       const id = 'frangooly';
 
       const capTpInit = {
-        query: {
-          label: EnvelopeLabel.Command,
-          content: {
-            id: `${id}-1`,
-            message: {
-              data: null,
-              type: 'makeCapTp',
-            },
+        query: wrapCommand({
+          id: `${id}-1`,
+          message: {
+            data: null,
+            type: Command.CapTpInit,
           },
-        },
-        response: {
-          label: EnvelopeLabel.Command,
-          content: {
-            id: `${id}-1`,
-            message: {
-              type: 'makeCapTp',
-              data: null,
-            },
+        }),
+        response: wrapCommand({
+          id: `${id}-1`,
+          message: {
+            type: Command.CapTpInit,
+            data: null,
           },
-        },
+        }),
       };
 
       const greatFrangoolyBootstrap = {
-        query: {
-          label: 'capTp',
-          content: {
-            epoch: 0,
-            questionID: 'q-1',
-            type: 'CTP_BOOTSTRAP',
+        query: wrapCapTp({
+          epoch: 0,
+          questionID: 'q-1',
+          type: 'CTP_BOOTSTRAP',
+        }),
+        response: wrapCapTp({
+          type: 'CTP_RETURN',
+          epoch: 0,
+          answerID: 'q-1',
+          result: {
+            body: '{"@qclass":"slot","iface":"Alleged: TheGreatFrangooly","index":0}',
+            slots: ['o+1'],
           },
-        },
-        response: {
-          label: 'capTp',
-          content: {
-            type: 'CTP_RETURN',
-            epoch: 0,
-            answerID: 'q-1',
-            result: {
-              body: '{"@qclass":"slot","iface":"Alleged: TheGreatFrangooly","index":0}',
-              slots: ['o+1'],
-            },
-          },
-        },
+        }),
       };
 
       const greatFrangoolyCall = {
-        query: {
-          label: 'capTp',
-          content: {
-            type: 'CTP_CALL',
-            epoch: 0,
-            method: {
-              body: '["whatIsTheGreatFrangooly",[]]',
-              slots: [],
-            },
-            questionID: 'q-2',
-            target: 'o-1',
+        query: wrapCapTp({
+          type: 'CTP_CALL',
+          epoch: 0,
+          method: {
+            body: '["whatIsTheGreatFrangooly",[]]',
+            slots: [],
           },
-        },
-        response: {
-          label: 'capTp',
-          content: {
-            type: 'CTP_RETURN',
-            epoch: 0,
-            answerID: 'q-2',
-            result: {
-              body: '"Crowned with Chaos"',
-              slots: [],
-            },
+          questionID: 'q-2',
+          target: 'o-1',
+        }),
+        response: wrapCapTp({
+          type: 'CTP_RETURN',
+          epoch: 0,
+          answerID: 'q-2',
+          result: {
+            body: '"Crowned with Chaos"',
+            slots: [],
           },
-        },
+        }),
       };
 
       vi.mocked(snapsUtils.createWindow).mockImplementationOnce(vi.fn());
@@ -439,22 +449,19 @@ describe('IframeManager', () => {
       const message: IframeMessage = { type: Command.Evaluate, data: '2+2' };
       const response: IframeMessage = { type: Command.Evaluate, data: '4' };
 
-      // sendMessage wraps the content in a EnvelopeLabel.Command envelope
+      // sendMessage wraps the content in a Command envelope
       const messagePromise = manager.sendMessage(id, message);
-      const messageId: string | undefined =
+      const messageId: string =
         portPostMessageSpy.mock.lastCall?.[0]?.value?.content?.id;
       expect(messageId).toBeTypeOf('string');
 
       // postMessage sends the json directly, so we have to wrap it in an envelope here
       port2.postMessage({
         done: false,
-        value: {
-          label: EnvelopeLabel.Command,
-          content: {
-            id: messageId,
-            message: response,
-          },
-        },
+        value: wrapCommand({
+          id: messageId,
+          message: response,
+        }),
       });
 
       // awaiting event loop should resolve the messagePromise
@@ -464,13 +471,10 @@ describe('IframeManager', () => {
       expect(portPostMessageSpy).toHaveBeenCalledOnce();
       expect(portPostMessageSpy).toHaveBeenCalledWith({
         done: false,
-        value: {
-          label: EnvelopeLabel.Command,
-          content: {
-            id: messageId,
-            message,
-          },
-        },
+        value: wrapCommand({
+          id: messageId,
+          message,
+        }),
       });
     });
 
@@ -502,7 +506,7 @@ describe('IframeManager', () => {
       await delay(10);
 
       expect(warnSpy).toHaveBeenCalledWith(
-        'Offscreen received message with unexpected format',
+        'Stream envelope handler received unexpected value',
         'foo',
       );
     });
@@ -521,16 +525,13 @@ describe('IframeManager', () => {
 
       port2.postMessage({
         done: false,
-        value: {
-          label: EnvelopeLabel.Command,
-          content: {
-            id: 'foo',
-            message: {
-              type: Command.Evaluate,
-              data: '"bar"',
-            },
+        value: wrapCommand({
+          id: 'foo',
+          message: {
+            type: Command.Evaluate,
+            data: '"bar"',
           },
-        },
+        }),
       });
       await delay(10);
 

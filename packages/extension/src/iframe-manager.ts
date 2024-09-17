@@ -9,11 +9,23 @@ import {
   makeMessagePortStreamPair,
 } from '@ocap/streams';
 
-import type { StreamEnvelope } from './envelope.js';
-import { EnvelopeLabel, isStreamEnvelope } from './envelope.js';
-import type { CapTpPayload, IframeMessage, MessageId } from './message.js';
+import type {
+  CapTpMessage,
+  CapTpPayload,
+  IframeMessage,
+  MessageId,
+} from './message.js';
 import { Command } from './message.js';
 import { makeCounter, type VatId } from './shared.js';
+import {
+  makeStreamEnvelopeHandler,
+  wrapCapTp,
+  wrapCommand,
+} from './stream-envelope.js';
+import type {
+  StreamEnvelope,
+  StreamEnvelopeHandler,
+} from './stream-envelope.js';
 
 const IFRAME_URI = 'iframe.html';
 
@@ -27,12 +39,15 @@ const getHtmlId = (id: VatId): string => `ocap-iframe-${id}`;
 
 type PromiseCallbacks = Omit<PromiseKit<unknown>, 'promise'>;
 
+type UnresolvedMessages = Map<MessageId, PromiseCallbacks>;
+
 type GetPort = (targetWindow: Window) => Promise<MessagePort>;
 
 type VatRecord = {
   streams: StreamPair<StreamEnvelope>;
   messageCounter: () => number;
-  unresolvedMessages: Map<MessageId, PromiseCallbacks>;
+  unresolvedMessages: UnresolvedMessages;
+  streamEnvelopeHandler: StreamEnvelopeHandler;
   capTp?: ReturnType<typeof makeCapTP>;
 };
 
@@ -63,26 +78,41 @@ export class IframeManager {
   async create(
     args: { id?: VatId; getPort?: GetPort } = {},
   ): Promise<readonly [Window, VatId]> {
-    const id = args.id ?? this.#nextVatId();
+    const vatId = args.id ?? this.#nextVatId();
     const getPort = args.getPort ?? initializeMessageChannel;
 
-    const newWindow = await createWindow(IFRAME_URI, getHtmlId(id));
+    const newWindow = await createWindow(IFRAME_URI, getHtmlId(vatId));
     const port = await getPort(newWindow);
     const streams = makeMessagePortStreamPair<StreamEnvelope>(port);
-    this.#vats.set(id, {
+    const unresolvedMessages = new Map();
+    this.#vats.set(vatId, {
       streams,
       messageCounter: makeCounter(),
-      unresolvedMessages: new Map(),
+      unresolvedMessages,
+      streamEnvelopeHandler: makeStreamEnvelopeHandler(
+        {
+          command: async ({ id, message }) => {
+            const promiseCallbacks = unresolvedMessages.get(id);
+            if (promiseCallbacks === undefined) {
+              console.error(`No unresolved message with id "${id}".`);
+            } else {
+              unresolvedMessages.delete(id);
+              promiseCallbacks.resolve(message.data);
+            }
+          },
+        },
+        console.warn,
+      ),
     });
     /* v8 ignore next 4: Not known to be possible. */
-    this.#receiveMessages(id, streams.reader).catch((error) => {
-      console.error(`Unexpected read error from vat "${id}"`, error);
-      this.delete(id).catch(() => undefined);
+    this.#receiveMessages(vatId, streams.reader).catch((error) => {
+      console.error(`Unexpected read error from vat "${vatId}"`, error);
+      this.delete(vatId).catch(() => undefined);
     });
 
-    await this.sendMessage(id, { type: Command.Ping, data: null });
-    console.debug(`Created vat with id "${id}"`);
-    return [newWindow, id] as const;
+    await this.sendMessage(vatId, { type: Command.Ping, data: null });
+    console.debug(`Created vat with id "${vatId}"`);
+    return [newWindow, vatId] as const;
   }
 
   /**
@@ -130,10 +160,7 @@ export class IframeManager {
     const messageId = this.#nextMessageId(id);
 
     vat.unresolvedMessages.set(messageId, { reject, resolve });
-    await vat.streams.writer.next({
-      label: EnvelopeLabel.Command,
-      content: { id: messageId, message },
-    });
+    await vat.streams.writer.next(wrapCommand({ id: messageId, message }));
     return promise;
   }
 
@@ -157,10 +184,15 @@ export class IframeManager {
     // eslint-disable-next-line @typescript-eslint/no-misused-promises
     const ctp = makeCapTP(id, async (content: unknown) => {
       console.log('CapTP to vat', JSON.stringify(content, null, 2));
-      await writer.next({ label: EnvelopeLabel.CapTp, content });
+      await writer.next(wrapCapTp(content as CapTpMessage));
     });
 
     vat.capTp = ctp;
+    vat.streamEnvelopeHandler.contentHandlers.capTp = async (content) => {
+      console.log('CapTP from vat', JSON.stringify(content, null, 2));
+      ctp.dispatch(content);
+    };
+
     return this.sendMessage(id, { type: Command.CapTpInit, data: null });
   }
 
@@ -169,45 +201,10 @@ export class IframeManager {
     reader: Reader<StreamEnvelope>,
   ): Promise<void> {
     const vat = this.#expectGetVat(vatId);
+
     for await (const rawMessage of reader) {
       console.debug('Offscreen received message', rawMessage);
-
-      if (!isStreamEnvelope(rawMessage)) {
-        console.warn(
-          'Offscreen received message with unexpected format',
-          rawMessage,
-        );
-        return;
-      }
-
-      switch (rawMessage.label) {
-        case EnvelopeLabel.CapTp: {
-          console.log(
-            'CapTP from vat',
-            JSON.stringify(rawMessage.content, null, 2),
-          );
-          const { capTp } = this.#expectGetVat(vatId);
-          if (capTp !== undefined) {
-            capTp.dispatch(rawMessage.content);
-          }
-          break;
-        }
-        case EnvelopeLabel.Command: {
-          const { id, message } = rawMessage.content;
-          const promiseCallbacks = vat.unresolvedMessages.get(id);
-          if (promiseCallbacks === undefined) {
-            console.error(`No unresolved message with id "${id}".`);
-          } else {
-            vat.unresolvedMessages.delete(id);
-            promiseCallbacks.resolve(message.data);
-          }
-          break;
-        }
-        /* v8 ignore next 3: Exhaustiveness check */
-        default:
-          // @ts-expect-error The type of `rawMessage` is `never`, but this could happen at runtime.
-          throw new Error(`Unexpected message label "${rawMessage.label}".`);
-      }
+      await vat.streamEnvelopeHandler.handle(rawMessage);
     }
   }
 
