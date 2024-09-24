@@ -1,6 +1,7 @@
-import { makeStreamEnvelopeKit } from './envelope-kit.js';
-import { isCapTpMessage, isWrappedVatMessage } from './type-guards.js';
-import type { CapTpMessage, WrappedVatMessage } from './types.js';
+import { makeStreamEnvelopeKit } from '@ocap/streams';
+
+import { isCapTpMessage, isVatMessage } from './type-guards.js';
+import type { CapTpMessage, VatMessage } from './types.js';
 
 type GuardType<TypeGuard> = TypeGuard extends (
   value: unknown,
@@ -27,21 +28,19 @@ const envelopeLabels = Object.values(EnvelopeLabel);
 const envelopeKit = makeStreamEnvelopeKit<
   typeof envelopeLabels,
   {
-    command: WrappedVatMessage;
+    command: VatMessage;
     capTp: CapTpMessage;
   }
 >({
-  command: isWrappedVatMessage,
+  command: isVatMessage,
   capTp: isCapTpMessage,
 });
 
-const { streamEnveloper, makeStreamEnvelopeHandler } = envelopeKit;
-
 export type StreamEnvelope = GuardType<typeof envelopeKit.isStreamEnvelope>;
 export type StreamEnvelopeHandler = ReturnType<
-  typeof makeStreamEnvelopeHandler
+  typeof envelopeKit.makeStreamEnvelopeHandler
 >;
 
-export const wrapStreamCommand = streamEnveloper.command.wrap;
-export const wrapCapTp = streamEnveloper.capTp.wrap;
-export { makeStreamEnvelopeHandler };
+export const wrapStreamCommand = envelopeKit.streamEnveloper.command.wrap;
+export const wrapCapTp = envelopeKit.streamEnveloper.capTp.wrap;
+export const { makeStreamEnvelopeHandler } = envelopeKit;

@@ -1,27 +1,31 @@
 import type { Json } from '@metamask/utils';
 import './background-trusted-prelude.js';
-import type { KernelMessage } from '@ocap/streams';
-import { Command, KernelMessageTarget } from '@ocap/streams';
+import { CommandMethod } from '@ocap/utils';
 
-import { makeHandledCallback } from './shared.js';
+import {
+  ExtensionMessageTarget,
+  isExtensionRuntimeMessage,
+  makeHandledCallback,
+} from './shared.js';
 
 // globalThis.kernel will exist due to dev-console.js in background-trusted-prelude.js
 Object.defineProperties(globalThis.kernel, {
   capTpCall: {
     value: async (method: string, params: Json[]) =>
-      sendMessage(Command.CapTpCall, { method, params }),
+      sendCommand(CommandMethod.CapTpCall, { method, params }),
   },
   capTpInit: {
-    value: async () => sendMessage(Command.CapTpInit),
+    value: async () => sendCommand(CommandMethod.CapTpInit),
   },
   evaluate: {
-    value: async (source: string) => sendMessage(Command.Evaluate, source),
+    value: async (source: string) =>
+      sendCommand(CommandMethod.Evaluate, source),
   },
   ping: {
-    value: async () => sendMessage(Command.Ping),
+    value: async () => sendCommand(CommandMethod.Ping),
   },
   sendMessage: {
-    value: sendMessage,
+    value: sendCommand,
   },
 });
 harden(globalThis.kernel);
@@ -30,23 +34,25 @@ const OFFSCREEN_DOCUMENT_PATH = '/offscreen.html';
 
 // With this we can click the extension action button to wake up the service worker.
 chrome.action.onClicked.addListener(() => {
-  sendMessage(Command.Ping).catch(console.error);
+  sendCommand(CommandMethod.Ping).catch(console.error);
 });
 
 /**
  * Send a message to the offscreen document.
  *
- * @param type - The message type.
- * @param data - The message data.
- * @param data.name - The name to include in the message.
+ * @param method - The message type.
+ * @param params - The message data.
+ * @param params.name - The name to include in the message.
  */
-async function sendMessage(type: string, data?: Json): Promise<void> {
+async function sendCommand(method: string, params?: Json): Promise<void> {
   await provideOffScreenDocument();
 
   await chrome.runtime.sendMessage({
-    type,
-    target: KernelMessageTarget.Offscreen,
-    data: data ?? null,
+    target: ExtensionMessageTarget.Offscreen,
+    payload: {
+      method,
+      params: params ?? null,
+    },
   });
 }
 
@@ -65,26 +71,32 @@ async function provideOffScreenDocument(): Promise<void> {
 
 // Handle replies from the offscreen document
 chrome.runtime.onMessage.addListener(
-  makeHandledCallback(async (message: KernelMessage) => {
-    if (message.target !== KernelMessageTarget.Background) {
+  makeHandledCallback(async (message: unknown) => {
+    if (!isExtensionRuntimeMessage(message)) {
+      console.error('Background received unexpected message', message);
+      return;
+    }
+    if (message.target !== ExtensionMessageTarget.Background) {
       console.warn(
         `Background received message with unexpected target: "${message.target}"`,
       );
       return;
     }
 
-    switch (message.type) {
-      case Command.Evaluate:
-      case Command.CapTpCall:
-      case Command.CapTpInit:
-      case Command.Ping:
-        console.log(message.data);
+    const { payload } = message;
+
+    switch (payload.method) {
+      case CommandMethod.Evaluate:
+      case CommandMethod.CapTpCall:
+      case CommandMethod.CapTpInit:
+      case CommandMethod.Ping:
+        console.log(payload.params);
         break;
       default:
         console.error(
           // @ts-expect-error The type of `message` is `never`, but this could happen at runtime.
           // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
-          `Background received unexpected message type: "${message.type}"`,
+          `Background received unexpected command method: "${payload.method}"`,
         );
     }
   }),

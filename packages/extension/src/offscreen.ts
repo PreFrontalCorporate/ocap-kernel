@@ -1,13 +1,13 @@
 import { Kernel } from '@ocap/kernel';
-import {
-  initializeMessageChannel,
-  Command,
-  KernelMessageTarget,
-} from '@ocap/streams';
-import type { KernelMessage } from '@ocap/streams';
+import { initializeMessageChannel } from '@ocap/streams';
+import { CommandMethod } from '@ocap/utils';
 
 import { makeIframeVatWorker } from './makeIframeVatWorker.js';
-import { makeHandledCallback } from './shared.js';
+import {
+  ExtensionMessageTarget,
+  isExtensionRuntimeMessage,
+  makeHandledCallback,
+} from './shared.js';
 
 main().catch(console.error);
 
@@ -23,9 +23,13 @@ async function main(): Promise<void> {
 
   // Handle messages from the background service worker
   chrome.runtime.onMessage.addListener(
-    makeHandledCallback(async (message: KernelMessage) => {
-      if (message.target !== KernelMessageTarget.Offscreen) {
-        console.warn(
+    makeHandledCallback(async (message: unknown) => {
+      if (!isExtensionRuntimeMessage(message)) {
+        console.error('Offscreen received unexpected message', message);
+        return;
+      }
+      if (message.target !== ExtensionMessageTarget.Offscreen) {
+        console.error(
           `Offscreen received message with unexpected target: "${message.target}"`,
         );
         return;
@@ -33,43 +37,59 @@ async function main(): Promise<void> {
 
       const vat = await iframeReadyP;
 
-      switch (message.type) {
-        case Command.Evaluate:
-          await reply(Command.Evaluate, await evaluate(vat.id, message.data));
+      const { payload } = message;
+
+      switch (payload.method) {
+        case CommandMethod.Evaluate:
+          await replyToCommand(
+            CommandMethod.Evaluate,
+            await evaluate(vat.id, payload.params),
+          );
           break;
-        case Command.CapTpCall: {
-          const result = await vat.callCapTp(message.data);
-          await reply(Command.CapTpCall, JSON.stringify(result, null, 2));
+        case CommandMethod.CapTpCall: {
+          const result = await vat.callCapTp(payload.params);
+          await replyToCommand(
+            CommandMethod.CapTpCall,
+            JSON.stringify(result, null, 2),
+          );
           break;
         }
-        case Command.CapTpInit:
+        case CommandMethod.CapTpInit:
           await vat.makeCapTp();
-          await reply(Command.CapTpInit, '~~~ CapTP Initialized ~~~');
+          await replyToCommand(
+            CommandMethod.CapTpInit,
+            '~~~ CapTP Initialized ~~~',
+          );
           break;
-        case Command.Ping:
-          await reply(Command.Ping, 'pong');
+        case CommandMethod.Ping:
+          await replyToCommand(CommandMethod.Ping, 'pong');
           break;
         default:
           console.error(
-            // @ts-expect-error The type of `message` is `never`, but this could happen at runtime.
+            // @ts-expect-error The type of `payload` is `never`, but this could happen at runtime.
             // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
-            `Offscreen received unexpected message type: "${message.type}"`,
+            `Offscreen received unexpected command method: "${payload.method}"`,
           );
       }
     }),
   );
 
   /**
-   * Reply to the background script.
+   * Reply to a command from the background script.
    *
-   * @param type - The message type.
-   * @param data - The message data.
+   * @param method - The command method.
+   * @param params - The command parameters.
    */
-  async function reply(type: Command, data?: string): Promise<void> {
+  async function replyToCommand(
+    method: CommandMethod,
+    params?: string,
+  ): Promise<void> {
     await chrome.runtime.sendMessage({
-      data: data ?? null,
-      target: KernelMessageTarget.Background,
-      type,
+      target: ExtensionMessageTarget.Background,
+      payload: {
+        method,
+        params: params ?? null,
+      },
     });
   }
 
@@ -83,8 +103,8 @@ async function main(): Promise<void> {
   async function evaluate(vatId: string, source: string): Promise<string> {
     try {
       const result = await kernel.sendMessage(vatId, {
-        type: Command.Evaluate,
-        data: source,
+        method: CommandMethod.Evaluate,
+        params: source,
       });
       return String(result);
     } catch (error) {

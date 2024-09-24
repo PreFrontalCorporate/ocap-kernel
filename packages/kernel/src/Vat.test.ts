@@ -1,11 +1,12 @@
 import '@ocap/shims/endoify';
-import {
-  makeMessagePortStreamPair,
-  makeStreamEnvelopeHandler,
-  Command,
-} from '@ocap/streams';
-import type { StreamEnvelope, VatMessage } from '@ocap/streams';
+import { makeMessagePortStreamPair } from '@ocap/streams';
 import { makeCapTpMock, makePromiseKitMock } from '@ocap/test-utils';
+import {
+  CommandMethod,
+  makeStreamEnvelopeHandler,
+  type Command,
+  type StreamEnvelope,
+} from '@ocap/utils';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { Vat } from './Vat.js';
@@ -42,8 +43,8 @@ describe('Vat', () => {
       await vat.init();
 
       expect(sendMessageMock).toHaveBeenCalledWith({
-        type: Command.Ping,
-        data: null,
+        method: CommandMethod.Ping,
+        params: null,
       });
       expect(capTpMock).toHaveBeenCalled();
     });
@@ -51,7 +52,7 @@ describe('Vat', () => {
 
   describe('sendMessage', () => {
     it('sends a message and resolves the promise', async () => {
-      const mockMessage = { type: 'makeCapTp', data: null } as VatMessage;
+      const mockMessage = { method: 'makeCapTp', params: null } as Command;
       const sendMessagePromise = vat.sendMessage(mockMessage);
       vat.unresolvedMessages.get('test-vat-1')?.resolve('test-response');
       const result = await sendMessagePromise;
@@ -87,8 +88,8 @@ describe('Vat', () => {
       await vat.makeCapTp();
       expect(vat.streamEnvelopeHandler.contentHandlers.capTp).toBeDefined();
       expect(sendMessageMock).toHaveBeenCalledWith({
-        type: Command.CapTpInit,
-        data: null,
+        method: CommandMethod.CapTpInit,
+        params: null,
       });
     });
   });

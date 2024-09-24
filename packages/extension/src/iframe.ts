@@ -1,20 +1,19 @@
 import { makeCapTP } from '@endo/captp';
 import { makeExo } from '@endo/exo';
 import { M } from '@endo/patterns';
+import { receiveMessagePort, makeMessagePortStreamPair } from '@ocap/streams';
 import type {
   StreamEnvelope,
   CapTpMessage,
-  VatMessage,
-  WrappedVatMessage,
-} from '@ocap/streams';
-import {
-  receiveMessagePort,
-  makeMessagePortStreamPair,
-  makeStreamEnvelopeHandler,
   Command,
+  VatMessage,
+} from '@ocap/utils';
+import {
+  CommandMethod,
+  makeStreamEnvelopeHandler,
   wrapCapTp,
   wrapStreamCommand,
-} from '@ocap/streams';
+} from '@ocap/utils';
 
 const defaultCompartment = new Compartment({ URL });
 
@@ -49,32 +48,29 @@ async function main(): Promise<void> {
   /**
    * Handle a message from the parent window.
    *
-   * @param wrappedMessage - The wrapped message to handle.
-   * @param wrappedMessage.id - The id of the message.
-   * @param wrappedMessage.message - The message to handle.
+   * @param vatMessage - The vat message to handle.
+   * @param vatMessage.id - The id of the message.
+   * @param vatMessage.payload - The payload to handle.
    */
-  async function handleMessage({
-    id,
-    message,
-  }: WrappedVatMessage): Promise<void> {
-    switch (message.type) {
-      case Command.Evaluate: {
-        if (typeof message.data !== 'string') {
+  async function handleMessage({ id, payload }: VatMessage): Promise<void> {
+    switch (payload.method) {
+      case CommandMethod.Evaluate: {
+        if (typeof payload.params !== 'string') {
           console.error(
-            'iframe received message with unexpected data type',
+            'iframe received command with unexpected params',
             // @ts-expect-error The type of `message.data` is `never`, but this could happen at runtime.
-            stringifyResult(message.data),
+            stringifyResult(payload.params),
           );
           return;
         }
-        const result = safelyEvaluate(message.data);
+        const result = safelyEvaluate(payload.params);
         await replyToMessage(id, {
-          type: Command.Evaluate,
-          data: stringifyResult(result),
+          method: CommandMethod.Evaluate,
+          params: stringifyResult(result),
         });
         break;
       }
-      case Command.CapTpInit: {
+      case CommandMethod.CapTpInit: {
         const bootstrap = makeExo(
           'TheGreatFrangooly',
           M.interface('TheGreatFrangooly', {}, { defaultGuards: 'passable' }),
@@ -87,16 +83,22 @@ async function main(): Promise<void> {
             streams.writer.next(wrapCapTp(content as CapTpMessage)),
           bootstrap,
         );
-        await replyToMessage(id, { type: Command.CapTpInit, data: null });
+        await replyToMessage(id, {
+          method: CommandMethod.CapTpInit,
+          params: null,
+        });
         break;
       }
-      case Command.Ping:
-        await replyToMessage(id, { type: Command.Ping, data: 'pong' });
+      case CommandMethod.Ping:
+        await replyToMessage(id, {
+          method: CommandMethod.Ping,
+          params: 'pong',
+        });
         break;
       default:
         console.error(
           // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
-          `iframe received unexpected message type: "${message.type}"`,
+          `iframe received unexpected command method: "${payload.method}"`,
         );
     }
   }
@@ -105,13 +107,10 @@ async function main(): Promise<void> {
    * Reply to a message from the parent window.
    *
    * @param id - The id of the message to reply to.
-   * @param message - The message to reply with.
+   * @param payload - The payload to reply with.
    */
-  async function replyToMessage(
-    id: string,
-    message: VatMessage,
-  ): Promise<void> {
-    await streams.writer.next(wrapStreamCommand({ id, message }));
+  async function replyToMessage(id: string, payload: Command): Promise<void> {
+    await streams.writer.next(wrapStreamCommand({ id, payload }));
   }
 
   /**

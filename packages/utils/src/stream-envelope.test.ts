@@ -5,13 +5,13 @@ import {
   wrapStreamCommand,
   makeStreamEnvelopeHandler,
 } from './stream-envelope.js';
-import type { CapTpMessage, WrappedVatMessage } from './types.js';
-import { Command } from './types.js';
+import type { CapTpMessage, VatMessage } from './types.js';
+import { CommandMethod } from './types.js';
 
 describe('StreamEnvelopeHandler', () => {
-  const commandContent: WrappedVatMessage = {
+  const commandContent: VatMessage = {
     id: '1',
-    message: { type: Command.Evaluate, data: '1 + 1' },
+    payload: { method: CommandMethod.Evaluate, params: '1 + 1' },
   };
   const capTpContent: CapTpMessage = {
     type: 'CTP_CALL',

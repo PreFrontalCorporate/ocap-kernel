@@ -5,19 +5,10 @@ export {
 export type { StreamPair, Reader, Writer } from './streams.js';
 export { makeMessagePortStreamPair } from './streams.js';
 export { makeStreamEnvelopeKit } from './envelope-kit.js';
+export type { StreamEnveloper } from './enveloper.js';
+export type { Envelope } from './envelope.js';
+export type { StreamEnvelopeHandler } from './envelope-handler.js';
 export type {
-  CapTpMessage,
-  CapTpPayload,
-  MessageId,
-  VatMessage,
-  KernelMessage,
-  WrappedVatMessage,
-} from './types.js';
-export { KernelMessageTarget, Command } from './types.js';
-export {
-  wrapStreamCommand,
-  wrapCapTp,
-  makeStreamEnvelopeHandler,
-  type StreamEnvelope,
-  type StreamEnvelopeHandler,
-} from './stream-envelope.js';
+  MakeStreamEnvelopeHandler,
+  StreamEnvelopeKit,
+} from './envelope-kit.js';
