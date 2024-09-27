@@ -1,6 +1,6 @@
 import { isObject } from '@metamask/utils';
-import type { Command } from '@ocap/utils';
-import { isCommand } from '@ocap/utils';
+import type { Command, CommandReply } from '@ocap/utils';
+import { isCommand, isCommandReply } from '@ocap/utils';
 
 export type VatId = string;
 
@@ -10,7 +10,9 @@ export enum ExtensionMessageTarget {
 }
 
 export type ExtensionRuntimeMessage = {
-  payload: Command;
+  // On some systems, including CI, ESLint complains of overlap between the union operands.
+  // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
+  payload: Command | CommandReply;
   target: ExtensionMessageTarget;
 };
 
@@ -22,7 +24,7 @@ export const isExtensionRuntimeMessage = (
   Object.values(ExtensionMessageTarget).includes(
     message.target as ExtensionMessageTarget,
   ) &&
-  isCommand(message.payload);
+  (isCommand(message.payload) || isCommandReply(message.payload));
 
 /**
  * Wrap an async callback to ensure any errors are at least logged.

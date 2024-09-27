@@ -1,12 +1,35 @@
 import './background-trusted-prelude.js';
 import type { Json } from '@metamask/utils';
-import { CommandMethod } from '@ocap/utils';
+import { CommandMethod, isCommandReply } from '@ocap/utils';
+import type { Command, CommandFunction } from '@ocap/utils';
 
 import {
   ExtensionMessageTarget,
   isExtensionRuntimeMessage,
   makeHandledCallback,
 } from './shared.js';
+
+/**
+ * Send a message to the offscreen document.
+ *
+ * @param method - The message type.
+ * @param params - The message data.
+ * @param params.name - The name to include in the message.
+ */
+const sendCommand: CommandFunction<Promise<void>> = async (
+  method: CommandMethod,
+  params?: Command['params'],
+) => {
+  await provideOffScreenDocument();
+
+  await chrome.runtime.sendMessage({
+    target: ExtensionMessageTarget.Offscreen,
+    payload: {
+      method,
+      params: params ?? null,
+    },
+  });
+};
 
 // globalThis.kernel will exist due to dev-console.js in background-trusted-prelude.js
 Object.defineProperties(globalThis.kernel, {
@@ -45,25 +68,6 @@ chrome.action.onClicked.addListener(() => {
 });
 
 /**
- * Send a message to the offscreen document.
- *
- * @param method - The message type.
- * @param params - The message data.
- * @param params.name - The name to include in the message.
- */
-async function sendCommand(method: string, params?: Json): Promise<void> {
-  await provideOffScreenDocument();
-
-  await chrome.runtime.sendMessage({
-    target: ExtensionMessageTarget.Offscreen,
-    payload: {
-      method,
-      params: params ?? null,
-    },
-  });
-}
-
-/**
  * Create the offscreen document if it doesn't already exist.
  */
 async function provideOffScreenDocument(): Promise<void> {
@@ -79,7 +83,10 @@ async function provideOffScreenDocument(): Promise<void> {
 // Handle replies from the offscreen document
 chrome.runtime.onMessage.addListener(
   makeHandledCallback(async (message: unknown) => {
-    if (!isExtensionRuntimeMessage(message)) {
+    if (
+      !isExtensionRuntimeMessage(message) ||
+      !isCommandReply(message.payload)
+    ) {
       console.error('Background received unexpected message', message);
       return;
     }
