@@ -1,5 +1,9 @@
+import '@ocap/shims/endoify';
+
 import { describe, it, expect } from 'vitest';
 
+import type { CapTpMessage, VatCommand, VatCommandReply } from './command.js';
+import { CommandMethod } from './command.js';
 import {
   wrapCapTp,
   wrapStreamCommand,
@@ -7,8 +11,6 @@ import {
   wrapStreamCommandReply,
   makeStreamEnvelopeReplyHandler,
 } from './stream-envelope.js';
-import type { CapTpMessage, VatCommand, VatCommandReply } from './types.js';
-import { CommandMethod } from './types.js';
 
 describe('StreamEnvelopeHandler', () => {
   const commandContent: VatCommand = {

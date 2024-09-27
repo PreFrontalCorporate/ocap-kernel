@@ -7,8 +7,8 @@ import {
   isCommandReply,
   isVatCommand,
   isVatCommandReply,
-} from './type-guards.js';
-import { CommandMethod } from './types.js';
+  CommandMethod,
+} from './command.js';
 
 describe('type-guards', () => {
   describe('isCapTpPayload', () => {
