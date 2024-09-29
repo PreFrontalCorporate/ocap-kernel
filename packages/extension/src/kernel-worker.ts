@@ -1,6 +1,7 @@
 import './kernel-worker-trusted-prelude.js';
 import { CommandMethod, isCommand } from '@ocap/kernel';
 import type { CommandReply, CommandReplyFunction } from '@ocap/kernel';
+import { stringify } from '@ocap/utils';
 import type { Database } from '@sqlite.org/sqlite-wasm';
 import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
 
@@ -172,10 +173,12 @@ async function main(): Promise<void> {
   };
 
   // Handle messages from the console service worker
-  onmessage = async (event) => {
+  globalThis.onmessage = async (event: MessageEvent<unknown>) => {
     if (!isCommand(event.data)) {
-      console.log('received unexpected message', event.data);
+      console.error('Received unexpected message', event.data);
+      return;
     }
+
     const { method, params } = event.data;
     console.log('received message: ', method, params);
 
@@ -216,8 +219,10 @@ async function main(): Promise<void> {
       }
       default:
         console.error(
-          // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
-          `kernel received unexpected method in message: "${method}"`,
+          `Kernel received unexpected method in message: "${stringify(
+            // @ts-expect-error Runtime does not respect "never".
+            method.valueOf(),
+          )}"`,
         );
     }
   };
