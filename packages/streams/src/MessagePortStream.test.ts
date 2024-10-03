@@ -2,11 +2,11 @@ import { delay, makePromiseKitMock } from '@ocap/test-utils';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-  makeDoneResult,
   makeMessagePortStreamPair,
   MessagePortReader,
   MessagePortWriter,
-} from './streams.js';
+} from './MessagePortStream.js';
+import { makeDoneResult } from './shared.js';
 
 vi.mock('@endo/promise-kit', () => makePromiseKitMock());
 
@@ -75,7 +75,7 @@ describe.concurrent('MessagePortReader', () => {
       port2.postMessage(unexpectedMessage);
 
       await expect(nextP).rejects.toThrow(
-        'Received unexpected message via message port',
+        'Received unexpected message from transport',
       );
     });
 
@@ -213,7 +213,7 @@ describe.concurrent('MessagePortWriter', () => {
       expect(await writer.next(null)).toStrictEqual(makeDoneResult());
       expect(consoleErrorSpy).toHaveBeenCalledOnce();
       expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'MessagePortWriter experienced a send failure:',
+        'MessagePortWriter experienced a dispatch failure:',
         new Error('foo'),
       );
     });
@@ -231,7 +231,7 @@ describe.concurrent('MessagePortWriter', () => {
       const writer = new MessagePortWriter(port1);
 
       await expect(writer.next(null)).rejects.toThrow(
-        'MessagePortWriter experienced repeated send failures.',
+        'MessagePortWriter experienced repeated dispatch failures.',
       );
       expect(postMessageSpy).toHaveBeenCalledTimes(3);
       expect(postMessageSpy).toHaveBeenNthCalledWith(1, {
@@ -241,7 +241,7 @@ describe.concurrent('MessagePortWriter', () => {
       expect(postMessageSpy).toHaveBeenNthCalledWith(2, new Error('foo'));
       expect(postMessageSpy).toHaveBeenNthCalledWith(
         3,
-        new Error('MessagePortWriter experienced repeated send failures.'),
+        new Error('MessagePortWriter experienced repeated dispatch failures.'),
       );
     });
   });
