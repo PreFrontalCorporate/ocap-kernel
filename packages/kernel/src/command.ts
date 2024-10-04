@@ -1,6 +1,6 @@
-import type { Primitive } from '@endo/captp';
-import { hasProperty, isObject } from '@metamask/utils';
-import { isPrimitive, isTypedArray, isTypedObject } from '@ocap/utils';
+import { is } from '@metamask/superstruct';
+import type { Json } from '@metamask/utils';
+import { hasProperty, isObject, UnsafeJsonStruct } from '@metamask/utils';
 
 export enum CommandMethod {
   CapTpCall = 'callCapTp',
@@ -11,21 +11,14 @@ export enum CommandMethod {
   KVGet = 'kvGet',
 }
 
-export type CommandParams =
-  | Primitive
-  | Promise<CommandParams>
-  | CommandParams[]
-  | { [key: string]: CommandParams };
-
-const isCommandParams = (value: unknown): value is CommandParams =>
-  isPrimitive(value) ||
-  value instanceof Promise ||
-  isTypedArray(value, isCommandParams) ||
-  isTypedObject(value, isCommandParams);
+// The "Unsafe" here is because this guard can actually be cheated at runtime,
+// but so long as we're only using it within our type boundaries, it should be fine.
+const isJsonUnsafe = (value: unknown): value is Json =>
+  is(value, UnsafeJsonStruct);
 
 export type CapTpPayload = {
   method: string;
-  params: CommandParams[];
+  params: Json[];
 };
 
 export const isCapTpPayload = (value: unknown): value is CapTpPayload =>
@@ -33,18 +26,14 @@ export const isCapTpPayload = (value: unknown): value is CapTpPayload =>
   typeof value.method === 'string' &&
   Array.isArray(value.params);
 
-type CommandLike<Method extends CommandMethod, Data extends CommandParams> = {
+type CommandLike<Method extends CommandMethod, Data extends Json> = {
   method: Method;
   params: Data;
 };
 
-type CommandReplyLike<
-  Method extends CommandMethod,
-  Data extends CommandParams,
-  ErrorType extends Error = never,
-> = {
+type CommandReplyLike<Method extends CommandMethod, Data extends Json> = {
   method: Method;
-  params: Data | ErrorType;
+  params: Data;
 };
 
 const isCommandLike = (
@@ -56,7 +45,7 @@ const isCommandLike = (
   isObject(value) &&
   Object.values(CommandMethod).includes(value.method as CommandMethod) &&
   hasProperty(value, 'params') &&
-  isCommandParams(value.params);
+  isJsonUnsafe(value.params);
 
 export type Command =
   | CommandLike<CommandMethod.Ping, null>
@@ -88,22 +77,15 @@ export type CommandReply =
   | CommandReplyLike<CommandMethod.Evaluate, string>
   | CommandReplyLike<CommandMethod.CapTpInit, string>
   | CommandReplyLike<CommandMethod.CapTpCall, string>
-  | CommandReplyLike<CommandMethod.KVGet, string, Error>
+  | CommandReplyLike<CommandMethod.KVGet, string>
   | CommandReplyLike<CommandMethod.KVSet, string>;
 
 export const isCommandReply = (value: unknown): value is CommandReply =>
-  isCommandLike(value) &&
-  (typeof value.params === 'string' || value.params instanceof Error);
-
-type UnionMinus<Union, Minus> = Union extends Minus ? never : Union;
+  isCommandLike(value) && typeof value.params === 'string';
 
 export type CommandReplyFunction<Return = void> = {
   (method: CommandMethod.Ping, params: 'pong'): Return;
-  (method: CommandMethod.KVGet, params: string | Error): Return;
-  (
-    method: UnionMinus<CommandMethod, CommandMethod.Ping | CommandMethod.KVGet>,
-    params: string,
-  ): Return;
+  (method: Exclude<CommandMethod, CommandMethod.Ping>, params: string): Return;
 };
 
 export type VatCommand = {
@@ -127,7 +109,7 @@ export const isVatCommandReply = (value: unknown): value is VatCommandReply =>
 export type CapTpMessage<Type extends `CTP_${string}` = `CTP_${string}`> = {
   type: Type;
   epoch: number;
-  [key: string]: unknown;
+  [key: string]: Json;
 };
 
 export const isCapTpMessage = (value: unknown): value is CapTpMessage =>

@@ -2,7 +2,7 @@ export {
   initializeMessageChannel,
   receiveMessagePort,
 } from './message-channel.js';
-export type { StreamPair, Reader, Writer } from './shared.js';
+export type { StreamPair, Reader, Writer } from './utils.js';
 export {
   makeMessagePortStreamPair,
   MessagePortReader,
@@ -16,3 +16,10 @@ export type {
   MakeStreamEnvelopeHandler,
   StreamEnvelopeKit,
 } from './envelope-kit.js';
+export type { ChromeRuntime, ChromeMessageSender } from './chrome.d.ts';
+export {
+  ChromeRuntimeReader,
+  ChromeRuntimeWriter,
+  ChromeRuntimeStreamTarget as ChromeRuntimeTarget,
+  makeChromeRuntimeStreamPair,
+} from './ChromeRuntimeStream.js';

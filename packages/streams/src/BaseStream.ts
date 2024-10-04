@@ -1,15 +1,23 @@
 import { makePromiseKit } from '@endo/promise-kit';
 import type { Reader, Writer } from '@endo/stream';
+import { type Json } from '@metamask/utils';
+import { stringify } from '@ocap/utils';
 
-import type { PromiseCallbacks } from './shared.js';
-import { isIteratorResult, makeDoneResult } from './shared.js';
+import type { Dispatchable, PromiseCallbacks, Writable } from './utils.js';
+import {
+  assertIsWritable,
+  isDispatchable,
+  makeDoneResult,
+  makePendingResult,
+  marshal,
+  unmarshal,
+} from './utils.js';
 
 /**
  * A function that receives input from a transport mechanism to a readable stream.
+ * Validates that the input is an {@link IteratorResult}, and throws if it is not.
  */
-export type ReceiveInput<Yield> = (
-  input: IteratorResult<Yield, undefined>,
-) => void;
+export type ReceiveInput = (input: unknown) => void;
 
 /**
  * The base of a readable async iterator stream.
@@ -18,7 +26,7 @@ export type ReceiveInput<Yield> = (
  * returned by `getReceiveInput()`. Any cleanup required by subclasses should be performed
  * in a callback passed to `setOnEnd()`.
  */
-export class BaseReader<Yield> implements Reader<Yield> {
+export class BaseReader<Read extends Json> implements Reader<Read> {
   #isDone: boolean = false;
 
   /**
@@ -54,7 +62,7 @@ export class BaseReader<Yield> implements Reader<Yield> {
    *
    * @returns The `receiveInput()` method.
    */
-  protected getReceiveInput(): ReceiveInput<Yield> {
+  protected getReceiveInput(): ReceiveInput {
     if (this.#didExposeReceiveInput) {
       throw new Error('receiveInput has already been accessed');
     }
@@ -62,30 +70,32 @@ export class BaseReader<Yield> implements Reader<Yield> {
     return this.#receiveInput.bind(this);
   }
 
-  readonly #receiveInput: ReceiveInput<Yield> = (input) => {
-    if (!isIteratorResult(input)) {
+  readonly #receiveInput: ReceiveInput = (input) => {
+    if (!isDispatchable(input)) {
       this.#throw(
         new Error(
-          `Received unexpected message from transport:\n${JSON.stringify(
-            input,
-            null,
-            2,
-          )}`,
+          `Received unexpected message from transport:\n${stringify(input)}`,
         ),
       );
       return;
     }
 
-    if (input.done === true) {
+    const unmarshaled = unmarshal(input);
+    if (unmarshaled instanceof Error) {
+      this.throwSync(unmarshaled);
+      return;
+    }
+
+    if (unmarshaled.done === true) {
       this.#return();
       return;
     }
 
     if (this.#outputBuffer.length > 0) {
       const { resolve } = this.#outputBuffer.shift() as PromiseCallbacks;
-      resolve({ ...input });
+      resolve({ ...unmarshaled });
     } else {
-      this.#inputBuffer.push(input);
+      this.#inputBuffer.push(unmarshaled);
     }
   };
 
@@ -111,7 +121,7 @@ export class BaseReader<Yield> implements Reader<Yield> {
     this.#onEnd?.();
   }
 
-  [Symbol.asyncIterator](): Reader<Yield> {
+  [Symbol.asyncIterator](): Reader<Read> {
     return this;
   }
 
@@ -120,7 +130,7 @@ export class BaseReader<Yield> implements Reader<Yield> {
    *
    * @returns The next message from the transport.
    */
-  async next(): Promise<IteratorResult<Yield, undefined>> {
+  async next(): Promise<IteratorResult<Read, undefined>> {
     if (this.#isDone) {
       return makeDoneResult();
     }
@@ -135,7 +145,7 @@ export class BaseReader<Yield> implements Reader<Yield> {
     } else {
       this.#outputBuffer.push({ resolve, reject });
     }
-    return promise as Promise<IteratorResult<Yield, undefined>>;
+    return promise as Promise<IteratorResult<Read, undefined>>;
   }
 
   /**
@@ -143,7 +153,7 @@ export class BaseReader<Yield> implements Reader<Yield> {
    *
    * @returns The final result for this stream.
    */
-  async return(): Promise<IteratorResult<Yield, undefined>> {
+  async return(): Promise<IteratorResult<Read, undefined>> {
     if (!this.#isDone) {
       this.#return();
     }
@@ -165,7 +175,7 @@ export class BaseReader<Yield> implements Reader<Yield> {
    * @param error - The error to reject pending reads with.
    * @returns The final result for this stream.
    */
-  async throw(error: Error): Promise<IteratorResult<Yield, undefined>> {
+  async throw(error: Error): Promise<IteratorResult<Read, undefined>> {
     return this.throwSync(error);
   }
 
@@ -176,7 +186,7 @@ export class BaseReader<Yield> implements Reader<Yield> {
    * @param error - The error to reject pending reads with.
    * @returns The final result for this stream.
    */
-  protected throwSync(error: Error): IteratorResult<Yield, undefined> {
+  protected throwSync(error: Error): IteratorResult<Read, undefined> {
     if (!this.#isDone) {
       this.#throw(error);
     }
@@ -193,14 +203,14 @@ export class BaseReader<Yield> implements Reader<Yield> {
 }
 harden(BaseReader);
 
-export type Dispatch<Yield> = (
-  value: IteratorResult<Yield, undefined> | Error,
+export type Dispatch<Yield extends Json> = (
+  value: Dispatchable<Yield>,
 ) => void | Promise<void>;
 
 /**
  * The base of a writable async iterator stream.
  */
-export class BaseWriter<Yield> implements Writer<Yield> {
+export class BaseWriter<Write extends Json> implements Writer<Write> {
   #isDone: boolean = false;
 
   /**
@@ -219,7 +229,7 @@ export class BaseWriter<Yield> implements Writer<Yield> {
   /**
    * A function that dispatches messages over the underlying transport mechanism.
    */
-  #onDispatch: Dispatch<Yield> = () => {
+  #onDispatch: Dispatch<Write> = () => {
     throw new Error('onDispatch has not been set');
   };
 
@@ -241,7 +251,7 @@ export class BaseWriter<Yield> implements Writer<Yield> {
    *
    * @param onDispatch - A function that dispatches messages over the underlying transport mechanism.
    */
-  protected setOnDispatch(onDispatch: Dispatch<Yield>): void {
+  protected setOnDispatch(onDispatch: Dispatch<Write>): void {
     if (this.#didSetOnDispatch) {
       throw new Error('onDispatch has already been set');
     }
@@ -262,14 +272,15 @@ export class BaseWriter<Yield> implements Writer<Yield> {
    * @returns The result of dispatching the value.
    */
   async #dispatch(
-    value: IteratorResult<Yield, undefined> | Error,
+    value: Writable<Write>,
     hasFailed = false,
   ): Promise<IteratorResult<undefined, undefined>> {
+    assertIsWritable(value);
     try {
-      await this.#onDispatch(value);
+      await this.#onDispatch(marshal(value));
       return value instanceof Error || value.done === true
         ? makeDoneResult()
-        : { done: false, value: undefined };
+        : makePendingResult(undefined);
     } catch (error) {
       console.error(`${this.#logName} experienced a dispatch failure:`, error);
 
@@ -280,12 +291,14 @@ export class BaseWriter<Yield> implements Writer<Yield> {
           `${this.#logName} experienced repeated dispatch failures.`,
           { cause: error },
         );
-        // TODO: Error handling
-        await this.#onDispatch(repeatedFailureError);
+        await this.#onDispatch(marshal(repeatedFailureError));
         throw repeatedFailureError;
       } else {
-        // TODO: Error handling
-        await this.#throw(error as Error, true);
+        await this.#throw(
+          /* v8 ignore next: The ternary is mostly to please TypeScript */
+          error instanceof Error ? error : new Error(String(error)),
+          true,
+        );
       }
       return makeDoneResult();
     }
@@ -311,7 +324,7 @@ export class BaseWriter<Yield> implements Writer<Yield> {
     this.#onEnd?.();
   }
 
-  [Symbol.asyncIterator](): Writer<Yield> {
+  [Symbol.asyncIterator](): Writer<Write> {
     return this;
   }
 
@@ -321,11 +334,11 @@ export class BaseWriter<Yield> implements Writer<Yield> {
    * @param value - The next message to write to the transport.
    * @returns The result of writing the message.
    */
-  async next(value: Yield): Promise<IteratorResult<undefined, undefined>> {
+  async next(value: Write): Promise<IteratorResult<undefined, undefined>> {
     if (this.#isDone) {
       return makeDoneResult();
     }
-    return this.#dispatch({ done: false, value });
+    return this.#dispatch(makePendingResult(value));
   }
 
   /**

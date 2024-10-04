@@ -1,14 +1,16 @@
-import { makePromiseKitMock } from '@ocap/test-utils';
+import { makeErrorMatcherFactory, makePromiseKitMock } from '@ocap/test-utils';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { Dispatch, ReceiveInput } from './BaseStream.js';
 import { BaseReader, BaseWriter } from './BaseStream.js';
-import { makeDoneResult } from './shared.js';
+import { makeDoneResult, makePendingResult } from './utils.js';
 
 vi.mock('@endo/promise-kit', () => makePromiseKitMock());
 
+const makeErrorMatcher = makeErrorMatcherFactory(expect);
+
 class TestReader extends BaseReader<number> {
-  receiveInput: ReceiveInput<number>;
+  receiveInput: ReceiveInput;
 
   constructor(onEnd?: () => void) {
     super();
@@ -16,7 +18,7 @@ class TestReader extends BaseReader<number> {
     onEnd && super.setOnEnd(onEnd);
   }
 
-  getReceiveInput(): ReceiveInput<number> {
+  getReceiveInput(): ReceiveInput {
     return super.getReceiveInput();
   }
 
@@ -68,7 +70,7 @@ describe('BaseReader', () => {
       expect(onEnd).not.toHaveBeenCalled();
 
       await reader.return();
-      expect(onEnd).toHaveBeenCalledTimes(1);
+      expect(onEnd).toHaveBeenCalledOnce();
     });
   });
 
@@ -77,12 +79,9 @@ describe('BaseReader', () => {
       const reader = new TestReader();
 
       const message = 42;
-      reader.receiveInput({ done: false, value: message });
+      reader.receiveInput(makePendingResult(message));
 
-      expect(await reader.next()).toStrictEqual({
-        done: false,
-        value: message,
-      });
+      expect(await reader.next()).toStrictEqual(makePendingResult(message));
     });
 
     it('emits message received after next()', async () => {
@@ -90,9 +89,9 @@ describe('BaseReader', () => {
 
       const nextP = reader.next();
       const message = 42;
-      reader.receiveInput({ done: false, value: message });
+      reader.receiveInput(makePendingResult(message));
 
-      expect(await nextP).toStrictEqual({ done: false, value: message });
+      expect(await nextP).toStrictEqual(makePendingResult(message));
     });
 
     it('iterates over multiple messages', async () => {
@@ -100,7 +99,7 @@ describe('BaseReader', () => {
 
       const messages = [1, 2, 3];
       messages.forEach((message) =>
-        reader.receiveInput({ done: false, value: message }),
+        reader.receiveInput(makePendingResult(message)),
       );
 
       let index = 0;
@@ -108,18 +107,31 @@ describe('BaseReader', () => {
         expect(message).toStrictEqual(messages[index]);
 
         index += 1;
-        if (index >= messages.length) {
+        if (index === messages.length) {
           break;
         }
       }
     });
 
-    it('throws when receiving unexpected message', async () => {
+    it.fails(
+      'throws after receiving unexpected message, before read is enqueued',
+      async () => {
+        const reader = new TestReader();
+
+        const unexpectedMessage = { foo: 'bar' };
+        reader.receiveInput(unexpectedMessage);
+
+        await expect(reader.next()).rejects.toThrow(
+          'Received unexpected message from transport',
+        );
+      },
+    );
+
+    it('throws after receiving unexpected message, after read is enqueued', async () => {
       const reader = new TestReader();
 
       const nextP = reader.next();
       const unexpectedMessage = { foo: 'bar' };
-      // @ts-expect-error Intentional destructive testing
       reader.receiveInput(unexpectedMessage);
 
       await expect(nextP).rejects.toThrow(
@@ -127,7 +139,16 @@ describe('BaseReader', () => {
       );
     });
 
-    it('ends if receiving final iterator result', async () => {
+    it('ends after receiving final iterator result, before read is enqueued', async () => {
+      const reader = new TestReader();
+
+      reader.receiveInput(makeDoneResult());
+
+      expect(await reader.next()).toStrictEqual(makeDoneResult());
+      expect(await reader.next()).toStrictEqual(makeDoneResult());
+    });
+
+    it('ends after receiving final iterator result, after read is enqueued', async () => {
       const reader = new TestReader();
 
       const nextP = reader.next();
@@ -231,7 +252,7 @@ describe('BaseWriter', () => {
       expect(onEnd).not.toHaveBeenCalled();
 
       await writer.return();
-      expect(onEnd).toHaveBeenCalledTimes(1);
+      expect(onEnd).toHaveBeenCalledOnce();
     });
   });
 
@@ -243,11 +264,8 @@ describe('BaseWriter', () => {
       const message = 42;
       const nextP = writer.next(message);
 
-      expect(await nextP).toStrictEqual({
-        done: false,
-        value: undefined,
-      });
-      expect(dispatchSpy).toHaveBeenCalledWith({ done: false, value: message });
+      expect(await nextP).toStrictEqual(makePendingResult(undefined));
+      expect(dispatchSpy).toHaveBeenCalledWith(makePendingResult(message));
     });
 
     it('throws if failing to dispatch a message', async () => {
@@ -258,11 +276,8 @@ describe('BaseWriter', () => {
 
       expect(await writer.next(42)).toStrictEqual(makeDoneResult());
       expect(dispatchSpy).toHaveBeenCalledTimes(2);
-      expect(dispatchSpy).toHaveBeenNthCalledWith(1, {
-        done: false,
-        value: 42,
-      });
-      expect(dispatchSpy).toHaveBeenNthCalledWith(2, new Error('foo'));
+      expect(dispatchSpy).toHaveBeenNthCalledWith(1, makePendingResult(42));
+      expect(dispatchSpy).toHaveBeenNthCalledWith(2, makeErrorMatcher('foo'));
     });
 
     it('failing to dispatch a message logs the error', async () => {
@@ -295,14 +310,11 @@ describe('BaseWriter', () => {
         'TestWriter experienced repeated dispatch failures.',
       );
       expect(dispatchSpy).toHaveBeenCalledTimes(3);
-      expect(dispatchSpy).toHaveBeenNthCalledWith(1, {
-        done: false,
-        value: 42,
-      });
-      expect(dispatchSpy).toHaveBeenNthCalledWith(2, new Error('foo'));
+      expect(dispatchSpy).toHaveBeenNthCalledWith(1, makePendingResult(42));
+      expect(dispatchSpy).toHaveBeenNthCalledWith(2, makeErrorMatcher('foo'));
       expect(dispatchSpy).toHaveBeenNthCalledWith(
         3,
-        new Error('TestWriter experienced repeated dispatch failures.'),
+        makeErrorMatcher('TestWriter experienced repeated dispatch failures.'),
       );
     });
   });
