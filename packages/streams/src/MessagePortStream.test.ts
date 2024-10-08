@@ -1,21 +1,14 @@
-import type { Json } from '@metamask/utils';
-import {
-  delay,
-  makeErrorMatcherFactory,
-  makePromiseKitMock,
-} from '@ocap/test-utils';
+import { delay, makePromiseKitMock } from '@ocap/test-utils';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-  makeMessagePortStreamPair,
+  MessagePortDuplexStream,
   MessagePortReader,
   MessagePortWriter,
 } from './MessagePortStream.js';
 import { makeDoneResult, makePendingResult } from './utils.js';
 
 vi.mock('@endo/promise-kit', () => makePromiseKitMock());
-
-const makeErrorMatcher = makeErrorMatcherFactory(expect);
 
 describe('MessagePortReader', () => {
   it('constructs a MessagePortReader', () => {
@@ -51,6 +44,20 @@ describe('MessagePortReader', () => {
     expect(closeSpy).toHaveBeenCalledOnce();
     expect(port1.onmessage).toBeNull();
   });
+
+  it('calls onEnd once when ending', async () => {
+    const { port1, port2 } = new MessageChannel();
+    const onEnd = vi.fn();
+    const reader = new MessagePortReader(port1, onEnd);
+
+    port2.postMessage(makeDoneResult());
+    await delay(100);
+
+    expect(await reader.next()).toStrictEqual(makeDoneResult());
+    expect(onEnd).toHaveBeenCalledTimes(1);
+    expect(await reader.next()).toStrictEqual(makeDoneResult());
+    expect(onEnd).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('MessagePortWriter', () => {
@@ -84,50 +91,45 @@ describe('MessagePortWriter', () => {
     expect(await writer.return()).toStrictEqual(makeDoneResult());
     expect(closeSpy).toHaveBeenCalledOnce();
   });
+
+  it('calls onEnd once when ending', async () => {
+    const { port1 } = new MessageChannel();
+    const onEnd = vi.fn();
+    const writer = new MessagePortWriter(port1, onEnd);
+
+    expect(await writer.return()).toStrictEqual(makeDoneResult());
+    expect(onEnd).toHaveBeenCalledTimes(1);
+    expect(await writer.return()).toStrictEqual(makeDoneResult());
+    expect(onEnd).toHaveBeenCalledTimes(1);
+  });
 });
 
-describe('makeMessagePortStreamPair', () => {
-  it('returns a pair of message ports', () => {
+describe('MessagePortDuplexStream', () => {
+  it('constructs a MessagePortDuplexStream', () => {
     const { port1 } = new MessageChannel();
-    const { reader, writer } = makeMessagePortStreamPair(port1);
+    const duplexStream = new MessagePortDuplexStream(port1);
 
-    expect(reader).toBeInstanceOf(MessagePortReader);
-    expect(writer).toBeInstanceOf(MessagePortWriter);
+    expect(duplexStream).toBeInstanceOf(MessagePortDuplexStream);
+    expect(duplexStream[Symbol.asyncIterator]()).toBe(duplexStream);
   });
 
-  it('return() calls return() on both streams', async () => {
-    const { port1, port2 } = new MessageChannel();
-    const streamPair = makeMessagePortStreamPair(port1);
-    const remoteReader = new MessagePortReader(port2);
-    const remoteReadP = remoteReader.next();
+  it('ends the reader when the writer ends', async () => {
+    const { port1 } = new MessageChannel();
+    port1.postMessage = () => {
+      throw new Error('foo');
+    };
+    const duplexStream = new MessagePortDuplexStream(port1);
 
-    expect(port1.onmessage).toBeDefined();
-    expect(port2.onmessage).toBeDefined();
-
-    await streamPair.return();
-
-    expect(port1.onmessage).toBeNull();
-
-    expect(await remoteReadP).toStrictEqual(makeDoneResult());
-    expect(port2.onmessage).toBeNull();
+    await expect(duplexStream.write(42)).rejects.toThrow('foo');
+    expect(await duplexStream.next()).toStrictEqual(makeDoneResult());
   });
 
-  it('throw() calls throw() on the writer but return on the reader', async () => {
+  it('ends the writer when the reader ends', async () => {
     const { port1, port2 } = new MessageChannel();
-    const streamPair = makeMessagePortStreamPair(port1);
-    const remoteReader = new MessagePortReader(port2);
-    const localReadP = (streamPair.reader as MessagePortReader<Json>).next();
-    const remoteReadP = remoteReader.next();
+    const duplexStream = new MessagePortDuplexStream(port1);
 
-    expect(port1.onmessage).toBeDefined();
-    expect(port2.onmessage).toBeDefined();
-
-    await streamPair.throw(new Error('foo'));
-
-    expect(await localReadP).toStrictEqual(makeDoneResult());
-    expect(port1.onmessage).toBeNull();
-
-    await expect(remoteReadP).rejects.toThrow(makeErrorMatcher('foo'));
-    expect(port2.onmessage).toBeNull();
+    port2.postMessage(makeDoneResult());
+    await delay(10);
+    expect(await duplexStream.write(42)).toStrictEqual(makeDoneResult());
   });
 });

@@ -1,5 +1,5 @@
 import '@ocap/shims/endoify';
-import { makeMessagePortStreamPair, MessagePortWriter } from '@ocap/streams';
+import { MessagePortDuplexStream, MessagePortWriter } from '@ocap/streams';
 import { delay, makePromiseKitMock } from '@ocap/test-utils';
 import { stringify } from '@ocap/utils';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -24,18 +24,16 @@ describe('Vat', () => {
   let messageChannel: MessageChannel;
 
   beforeEach(() => {
-    vi.resetAllMocks();
-
     messageChannel = new MessageChannel();
 
-    const streams = makeMessagePortStreamPair<
+    const stream = new MessagePortDuplexStream<
       StreamEnvelopeReply,
       StreamEnvelope
     >(messageChannel.port1);
 
     vat = new Vat({
       id: 'v0',
-      streams,
+      stream,
     });
   });
 
@@ -62,12 +60,11 @@ describe('Vat', () => {
       vi.spyOn(vat, 'makeCapTp').mockResolvedValueOnce(undefined);
       await vat.init();
       const consoleErrorSpy = vi.spyOn(vat.logger, 'error');
-      const error = new Error('test-error');
-      await vat.streams.reader.throw(error);
+      messageChannel.port2.postMessage('foobar');
       await delay(10);
       expect(consoleErrorSpy).toHaveBeenCalledWith(
         'Unexpected read error',
-        error,
+        new Error('Received unexpected message from transport:\n"foobar"'),
       );
     });
   });

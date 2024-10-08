@@ -1,7 +1,7 @@
 import './kernel-worker-trusted-prelude.js';
 import type { KernelCommand, KernelCommandReply } from '@ocap/kernel';
 import { isKernelCommand, KernelCommandMethod } from '@ocap/kernel';
-import { makePostMessageStreamPair } from '@ocap/streams';
+import { PostMessageDuplexStream } from '@ocap/streams';
 import type { Database } from '@sqlite.org/sqlite-wasm';
 import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
 
@@ -117,8 +117,8 @@ async function initDB(): Promise<Database> {
  * The main function for the offscreen script.
  */
 async function main(): Promise<void> {
-  const streamPair = makePostMessageStreamPair<
-    KernelWorkerCommand,
+  const kernelStream = new PostMessageDuplexStream<
+    KernelCommand,
     KernelCommandReply
   >(
     (message) => globalThis.postMessage(message),
@@ -129,7 +129,7 @@ async function main(): Promise<void> {
   const { sqlKVGet, sqlKVSet } = await initDb();
 
   // Handle messages from the console service worker
-  for await (const message of streamPair.reader) {
+  for await (const message of kernelStream) {
     if (isKernelWorkerCommand(message)) {
       await handleKernelCommand(message);
     } else {
@@ -187,7 +187,7 @@ async function main(): Promise<void> {
    * @param payload - The payload to reply with.
    */
   async function reply(payload: KernelCommandReply): Promise<void> {
-    await streamPair.writer.next(payload);
+    await kernelStream.write(payload);
   }
 
   /**

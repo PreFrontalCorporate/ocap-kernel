@@ -1,66 +1,26 @@
 import { makeErrorMatcherFactory, makePromiseKitMock } from '@ocap/test-utils';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { Dispatch, ReceiveInput } from './BaseStream.js';
 import { BaseReader, BaseWriter } from './BaseStream.js';
 import { makeDoneResult, makePendingResult, marshalError } from './utils.js';
+import { TestReader, TestWriter } from '../test/stream-mocks.js';
 
 vi.mock('@endo/promise-kit', () => makePromiseKitMock());
 
 const makeErrorMatcher = makeErrorMatcherFactory(expect);
-
-class TestReader extends BaseReader<number> {
-  receiveInput: ReceiveInput;
-
-  constructor(onEnd?: () => void) {
-    super();
-    this.receiveInput = super.getReceiveInput();
-    onEnd && super.setOnEnd(onEnd);
-  }
-
-  getReceiveInput(): ReceiveInput {
-    return super.getReceiveInput();
-  }
-
-  setOnEnd(onEnd: () => void): void {
-    super.setOnEnd(onEnd);
-  }
-}
-
-class TestWriter extends BaseWriter<number> {
-  constructor(onDispatch?: Dispatch<number>, onEnd?: () => void) {
-    super('TestWriter');
-    onDispatch && super.setOnDispatch(onDispatch);
-    onEnd && super.setOnEnd(onEnd);
-  }
-
-  setOnDispatch(onDispatch: Dispatch<number>): void {
-    super.setOnDispatch(onDispatch);
-  }
-
-  setOnEnd(onEnd: () => void): void {
-    super.setOnEnd(onEnd);
-  }
-}
 
 describe('BaseReader', () => {
   describe('initialization', () => {
     it('constructs a BaseReader', () => {
       const reader = new TestReader();
       expect(reader).toBeInstanceOf(BaseReader);
+      expect(reader[Symbol.asyncIterator]()).toBe(reader);
     });
 
     it('throws if getReceiveInput is called more than once', () => {
       const reader = new TestReader();
       expect(() => reader.getReceiveInput()).toThrow(
         'receiveInput has already been accessed',
-      );
-    });
-
-    it('throws if setOnEnd is called more than once', () => {
-      const reader = new TestReader(() => undefined);
-      expect(() => reader.setOnEnd(() => undefined)).toThrow(
-        'onEnd has already been set',
       );
     });
 
@@ -122,7 +82,7 @@ describe('BaseReader', () => {
       reader.receiveInput(unexpectedMessage);
 
       await expect(reader.next()).rejects.toThrow(
-        'Received invalid message from transport',
+        'Received unexpected message from transport',
       );
     });
 
@@ -134,7 +94,7 @@ describe('BaseReader', () => {
       reader.receiveInput(unexpectedMessage);
 
       await expect(nextP).rejects.toThrow(
-        'Received invalid message from transport',
+        'Received unexpected message from transport',
       );
     });
 
@@ -280,36 +240,16 @@ describe('BaseWriter', () => {
     it('constructs a BaseWriter', () => {
       const writer = new TestWriter(() => undefined);
       expect(writer).toBeInstanceOf(BaseWriter);
+      expect(writer[Symbol.asyncIterator]()).toBe(writer);
     });
 
-    it('throws if setOnDispatch is called more than once', () => {
-      const writer = new TestWriter(() => undefined);
-      expect(() => writer.setOnDispatch(() => undefined)).toThrow(
-        'onDispatch has already been set',
-      );
-    });
-
-    it('throws if setOnEnd is called more than once', () => {
-      const writer = new TestWriter(
-        () => undefined,
-        () => undefined,
-      );
-      expect(() => writer.setOnEnd(() => undefined)).toThrow(
-        'onEnd has already been set',
-      );
-    });
-
-    it('throws if setOnDispatch was not set by subclass constructor', async () => {
-      await expect(new TestWriter().next(42)).rejects.toThrow(
-        'onDispatch has not been set',
-      );
-    });
-
-    it('calls onEnd when ending', async () => {
+    it('calls onEnd once when ending', async () => {
       const onEnd = vi.fn();
       const writer = new TestWriter(() => undefined, onEnd);
       expect(onEnd).not.toHaveBeenCalled();
 
+      await writer.return();
+      expect(onEnd).toHaveBeenCalledOnce();
       await writer.return();
       expect(onEnd).toHaveBeenCalledOnce();
     });

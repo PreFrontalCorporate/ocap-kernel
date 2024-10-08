@@ -10,8 +10,7 @@
  * {@link MessagePortWriter} will end any {@link MessagePortReader} reading from the
  * remote port and close the entangled ports, but it will not affect any other streams
  * connected to the remote or local port, which must also be ended manually. Use
- * {@link makeMessagePortStreamPair} to make a pair of streams that share a local port
- * and can be ended together.
+ * {@link MessagePortDuplexStream} to create a duplex stream over a single port.
  *
  * Regarding limitations around detecting `MessagePort` closure, see:
  * - https://github.com/fergald/explainer-messageport-close
@@ -22,8 +21,10 @@
 
 import type { Json } from '@metamask/utils';
 
+import { BaseDuplexStream } from './BaseDuplexStream.js';
+import type { OnEnd } from './BaseStream.js';
 import { BaseReader, BaseWriter } from './BaseStream.js';
-import type { Dispatchable, StreamPair } from './utils.js';
+import type { Dispatchable } from './utils.js';
 
 /**
  * A readable stream over a {@link MessagePort}.
@@ -38,9 +39,12 @@ import type { Dispatchable, StreamPair } from './utils.js';
 export class MessagePortReader<Read extends Json> extends BaseReader<Read> {
   readonly #port: MessagePort;
 
-  constructor(port: MessagePort) {
-    super();
-    super.setOnEnd(this.#closePort.bind(this));
+  constructor(port: MessagePort, onEnd?: OnEnd) {
+    super(async () => {
+      port.close();
+      port.onmessage = null;
+      await onEnd?.();
+    });
 
     const receiveInput = super.getReceiveInput();
     this.#port = port;
@@ -50,11 +54,6 @@ export class MessagePortReader<Read extends Json> extends BaseReader<Read> {
     this.#port.onmessage = (messageEvent) => receiveInput(messageEvent.data);
 
     harden(this);
-  }
-
-  #closePort(): void {
-    this.#port.close();
-    this.#port.onmessage = null;
   }
 }
 harden(MessagePortReader);
@@ -67,48 +66,38 @@ harden(MessagePortReader);
  * - The module-level documentation for more details.
  */
 export class MessagePortWriter<Write extends Json> extends BaseWriter<Write> {
-  readonly #port: MessagePort;
-
-  constructor(port: MessagePort) {
-    super('MessagePortWriter');
-    super.setOnDispatch(this.#postMessage.bind(this));
-    super.setOnEnd(this.#closePort.bind(this));
-    this.#port = port;
+  constructor(port: MessagePort, onEnd?: OnEnd) {
+    super(
+      'MessagePortWriter',
+      (value: Dispatchable<Write>) => port.postMessage(value),
+      async () => {
+        port.close();
+        await onEnd?.();
+      },
+    );
     harden(this);
-  }
-
-  #closePort(): void {
-    this.#port.close();
-  }
-
-  #postMessage(value: Dispatchable<Write>): void {
-    this.#port.postMessage(value);
   }
 }
 harden(MessagePortWriter);
 
-/**
- * Makes a reader / writer pair over the same port, and provides convenience methods
- * for cleaning them up.
- *
- * @param port - The message port to make the streams over.
- * @returns The reader and writer streams, and cleanup methods.
- */
-export const makeMessagePortStreamPair = <
+export class MessagePortDuplexStream<
   Read extends Json,
   Write extends Json = Read,
->(
-  port: MessagePort,
-): StreamPair<Read, Write> => {
-  const reader = new MessagePortReader<Read>(port);
-  const writer = new MessagePortWriter<Write>(port);
-
-  return harden({
-    reader,
-    writer,
-    return: async () =>
-      Promise.all([writer.return(), reader.return()]).then(() => undefined),
-    throw: async (error: Error) =>
-      Promise.all([writer.throw(error), reader.return()]).then(() => undefined),
-  });
-};
+> extends BaseDuplexStream<
+  Read,
+  MessagePortReader<Read>,
+  Write,
+  MessagePortWriter<Write>
+> {
+  constructor(port: MessagePort) {
+    let writer: MessagePortWriter<Write>; // eslint-disable-line prefer-const
+    const reader = new MessagePortReader<Read>(port, async () => {
+      await writer.return();
+    });
+    writer = new MessagePortWriter<Write>(port, async () => {
+      await reader.return();
+    });
+    super(reader, writer);
+  }
+}
+harden(MessagePortDuplexStream);

@@ -13,52 +13,20 @@ import {
   unmarshal,
 } from './utils.js';
 
-/**
- * A buffer for managing backpressure (writes > reads) and "suction" (reads > writes) for a stream.
- * Modeled on `AsyncQueue` from `@endo/stream`, but with arrays under the hood instead of a promise chain.
- */
-type StreamBuffer<Value extends IteratorResult<Json, undefined>> = {
-  /**
-   * Flushes pending reads with a value or error, and causes subsequent writes to be ignored.
-   * Subsequent reads will exhaust any puts, then return the error (if any), and finally a `done` result.
-   * Idempotent.
-   *
-   * @param error - The error to end the stream with. A `done` result is used if not provided.
-   */
-  end: (error?: Error) => void;
-
-  /**
-   * Checks if there are pending reads.
-   *
-   * @returns Whether there are pending reads.
-   */
-  hasPendingReads: () => boolean;
-
-  /**
-   * Puts a value or error into the buffer.
-   *
-   * @see `end()` for behavior when the stream ends.
-   * @param value - The value or error to put.
-   */
-  put: (value: Value | Error) => void;
-
-  /**
-   * Gets a value from the buffer.
-   *
-   * @see `end()` for behavior when the stream ends.
-   * @returns The value from the buffer.
-   */
-  get: () => Promise<Value>;
-};
-
-const makeStreamBuffer = <
-  Value extends IteratorResult<Json, undefined>,
->(): StreamBuffer<Value> => {
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+const makeStreamBuffer = <Value extends IteratorResult<Json, undefined>>() => {
   const inputBuffer: (Value | Error)[] = [];
   const outputBuffer: PromiseCallbacks[] = [];
   let done = false;
 
   return {
+    /**
+     * Flushes pending reads with a value or error, and causes subsequent writes to be ignored.
+     * Subsequent reads will exhaust any puts, then return the error (if any), and finally a `done` result.
+     * Idempotent.
+     *
+     * @param error - The error to end the stream with. A `done` result is used if not provided.
+     */
     end: (error?: Error): void => {
       if (done) {
         return;
@@ -75,6 +43,12 @@ const makeStreamBuffer = <
       return outputBuffer.length > 0;
     },
 
+    /**
+     * Puts a value or error into the buffer.
+     *
+     * @see `end()` for behavior when the stream ends.
+     * @param value - The value or error to put.
+     */
     put(value: Value | Error) {
       if (done) {
         return;
@@ -112,6 +86,12 @@ const makeStreamBuffer = <
 harden(makeStreamBuffer);
 
 /**
+ * A function that is called when a stream ends. Useful for cleanup, such as closing a
+ * message port.
+ */
+export type OnEnd = () => void | Promise<void>;
+
+/**
  * A function that receives input from a transport mechanism to a readable stream.
  * Validates that the input is an {@link IteratorResult}, and throws if it is not.
  */
@@ -128,22 +108,24 @@ export type ReceiveInput = (input: unknown) => void;
  * by the consumer.
  */
 export class BaseReader<Read extends Json> implements Reader<Read> {
-  readonly #buffer: StreamBuffer<IteratorResult<Read, undefined>> =
-    makeStreamBuffer();
-
-  #didSetOnEnd: boolean = false;
-
   /**
-   * A function that is called when the stream ends.
+   * A buffer for managing backpressure (writes > reads) and "suction" (reads > writes) for a stream.
+   * Modeled on `AsyncQueue` from `@endo/stream`, but with arrays under the hood instead of a promise chain.
    */
-  #onEnd: (() => void) | undefined;
+  readonly #buffer = makeStreamBuffer<IteratorResult<Read, undefined>>();
+
+  #onEnd?: OnEnd | undefined;
 
   #didExposeReceiveInput: boolean = false;
 
   /**
    * Constructs a {@link BaseReader}.
+   *
+   * @param onEnd - A function that is called when the stream ends. For any cleanup that
+   * should happen when the stream ends, such as closing a message port.
    */
-  constructor() {
+  constructor(onEnd?: () => void) {
+    this.#onEnd = onEnd;
     harden(this);
   }
 
@@ -161,15 +143,15 @@ export class BaseReader<Read extends Json> implements Reader<Read> {
     return this.#receiveInput.bind(this);
   }
 
-  readonly #receiveInput: ReceiveInput = (input) => {
+  readonly #receiveInput: ReceiveInput = async (input) => {
     if (!isDispatchable(input)) {
       const error = new Error(
-        `Received invalid message from transport:\n${stringify(input)}`,
+        `Received unexpected message from transport:\n${stringify(input)}`,
       );
       if (!this.#buffer.hasPendingReads()) {
         this.#buffer.put(error);
       }
-      this.#end(error);
+      await this.#end(error);
       return;
     }
 
@@ -178,12 +160,12 @@ export class BaseReader<Read extends Json> implements Reader<Read> {
       if (!this.#buffer.hasPendingReads()) {
         this.#buffer.put(unmarshaled);
       }
-      this.#end(unmarshaled);
+      await this.#end(unmarshaled);
       return;
     }
 
     if (unmarshaled.done === true) {
-      this.#end();
+      await this.#end();
       return;
     }
 
@@ -191,33 +173,18 @@ export class BaseReader<Read extends Json> implements Reader<Read> {
   };
 
   /**
-   * Sets the `onEnd` method, which is called when the stream ends. Attempting to call
-   * this method more than once will throw an error.
-   *
-   * @param onEnd - A function that is called when the stream ends. For any cleanup that
-   * should happen when the stream ends, such as closing a message port.
-   */
-  protected setOnEnd(onEnd: () => void): void {
-    if (this.#didSetOnEnd) {
-      throw new Error('onEnd has already been set');
-    }
-    this.#didSetOnEnd = true;
-    this.#onEnd = onEnd;
-  }
-
-  /**
    * Ends the stream. Calls and then unsets the `#onEnd` method.
    * Idempotent.
    *
    * @param error - The error to end the stream with. A `done` result is used if not provided.
    */
-  #end(error?: Error): void {
+  async #end(error?: Error): Promise<void> {
     this.#buffer.end(error);
-    this.#onEnd?.();
+    await this.#onEnd?.();
     this.#onEnd = undefined;
   }
 
-  [Symbol.asyncIterator](): Reader<Read> {
+  [Symbol.asyncIterator](): typeof this {
     return this;
   }
 
@@ -236,7 +203,7 @@ export class BaseReader<Read extends Json> implements Reader<Read> {
    * @returns The final result for this stream.
    */
   async return(): Promise<IteratorResult<Read, undefined>> {
-    this.#end();
+    await this.#end();
     return makeDoneResult();
   }
 
@@ -248,7 +215,7 @@ export class BaseReader<Read extends Json> implements Reader<Read> {
    * @returns The final result for this stream.
    */
   async throw(error: Error): Promise<IteratorResult<Read, undefined>> {
-    this.#end(error);
+    await this.#end(error);
     return makeDoneResult();
   }
 }
@@ -264,50 +231,29 @@ export type Dispatch<Yield extends Json> = (
 export class BaseWriter<Write extends Json> implements Writer<Write> {
   #isDone: boolean = false;
 
-  /**
-   * The name of the stream, for logging purposes.
-   */
   readonly #logName: string = 'BaseWriter';
 
-  /**
-   * A function that is called when the stream ends. For any cleanup that should happen
-   * when the stream ends, such as closing a message port.
-   */
-  #onEnd: (() => void) | undefined;
+  readonly #onDispatch: Dispatch<Write>;
 
-  #didSetOnEnd: boolean = false;
-
-  /**
-   * A function that dispatches messages over the underlying transport mechanism.
-   */
-  #onDispatch: Dispatch<Write> = () => {
-    throw new Error('onDispatch has not been set');
-  };
-
-  #didSetOnDispatch: boolean = false;
+  #onEnd: OnEnd | undefined;
 
   /**
    * Constructs a {@link BaseWriter}.
    *
    * @param logName - The name of the stream, for logging purposes.
-   */
-  constructor(logName: string) {
-    this.#logName = logName;
-    harden(this);
-  }
-
-  /**
-   * Sets the `onDispatch` method, which is called when a message is received from the
-   * transport mechanism. Attempting to call this method more than once will throw an error.
-   *
    * @param onDispatch - A function that dispatches messages over the underlying transport mechanism.
+   * @param onEnd - A function that is called when the stream ends. For any cleanup that
+   * should happen when the stream ends, such as closing a message port.
    */
-  protected setOnDispatch(onDispatch: Dispatch<Write>): void {
-    if (this.#didSetOnDispatch) {
-      throw new Error('onDispatch has already been set');
-    }
-    this.#didSetOnDispatch = true;
+  constructor(
+    logName: string,
+    onDispatch: Dispatch<Write>,
+    onEnd?: () => void,
+  ) {
+    this.#logName = logName;
     this.#onDispatch = onDispatch;
+    this.#onEnd = onEnd;
+    harden(this);
   }
 
   /**
@@ -355,27 +301,13 @@ export class BaseWriter<Write extends Json> implements Writer<Write> {
     }
   }
 
-  /**
-   * Sets the `onEnd` method, which is called when the stream ends. Attempting to call
-   * this method more than once will throw an error.
-   *
-   * @param onEnd - A function that is called when the stream ends. For any cleanup that
-   * should happen when the stream ends, such as closing a message port.
-   */
-  protected setOnEnd(onEnd: () => void): void {
-    if (this.#didSetOnEnd) {
-      throw new Error('onEnd has already been set');
-    }
-    this.#didSetOnEnd = true;
-    this.#onEnd = onEnd;
-  }
-
-  #end(): void {
+  async #end(): Promise<void> {
     this.#isDone = true;
-    this.#onEnd?.();
+    await this.#onEnd?.();
+    this.#onEnd = undefined;
   }
 
-  [Symbol.asyncIterator](): Writer<Write> {
+  [Symbol.asyncIterator](): typeof this {
     return this;
   }
 
@@ -400,7 +332,7 @@ export class BaseWriter<Write extends Json> implements Writer<Write> {
   async return(): Promise<IteratorResult<undefined, undefined>> {
     if (!this.#isDone) {
       await this.#onDispatch(makeDoneResult());
-      this.#end();
+      await this.#end();
     }
     return makeDoneResult();
   }
@@ -433,7 +365,7 @@ export class BaseWriter<Write extends Json> implements Writer<Write> {
   ): Promise<IteratorResult<undefined, undefined>> {
     const result = this.#dispatch(error, hasFailed);
     if (!this.#isDone) {
-      this.#end();
+      await this.#end();
     }
     return result;
   }
