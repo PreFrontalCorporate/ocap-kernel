@@ -1,12 +1,8 @@
 import { createWindow } from '@metamask/snaps-utils';
-import type {
-  VatId,
-  VatWorker,
-  StreamEnvelopeReply,
-  StreamEnvelope,
-} from '@ocap/kernel';
+import type { VatId } from '@ocap/kernel';
 import type { initializeMessageChannel } from '@ocap/streams';
-import { MessagePortDuplexStream } from '@ocap/streams';
+
+import type { VatWorker } from './vat-worker-service.js';
 
 const IFRAME_URI = 'iframe.html';
 
@@ -23,12 +19,8 @@ export const makeIframeVatWorker = (
         testId: 'ocap-iframe',
       });
       const port = await getPort(newWindow);
-      const stream = new MessagePortDuplexStream<
-        StreamEnvelopeReply,
-        StreamEnvelope
-      >(port);
 
-      return [stream, newWindow];
+      return [port, newWindow];
     },
     delete: async (): Promise<void> => {
       const iframe = document.getElementById(vatHtmlId);
