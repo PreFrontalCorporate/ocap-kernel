@@ -1,103 +1,18 @@
 import './kernel-worker-trusted-prelude.js';
-import type { KernelCommand, KernelCommandReply } from '@ocap/kernel';
-import { isKernelCommand, KernelCommandMethod } from '@ocap/kernel';
-import { PostMessageDuplexStream } from '@ocap/streams';
+import type { KernelCommand, KernelCommandReply, VatId } from '@ocap/kernel';
+import { isKernelCommand, Kernel, KernelCommandMethod } from '@ocap/kernel';
+import { PostMessageDuplexStream, receiveMessagePort } from '@ocap/streams';
+import { makeLogger, stringify } from '@ocap/utils';
 import type { Database } from '@sqlite.org/sqlite-wasm';
 import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
 
-main().catch(console.error);
+import { ExtensionVatWorkerClient } from './VatWorkerClient.js';
 
-// We temporarily have the kernel commands split between offscreen and kernel-worker
-type KernelWorkerCommand = Extract<
-  KernelCommand,
-  | { method: typeof KernelCommandMethod.KVSet }
-  | { method: typeof KernelCommandMethod.KVGet }
->;
+type MainArgs = { defaultVatId: VatId };
 
-const isKernelWorkerCommand = (value: unknown): value is KernelWorkerCommand =>
-  isKernelCommand(value) &&
-  (value.method === KernelCommandMethod.KVSet ||
-    value.method === KernelCommandMethod.KVGet);
+const logger = makeLogger('[kernel worker]');
 
-type Queue<Type> = Type[];
-
-type VatId = `v${number}`;
-type RemoteId = `r${number}`;
-type EndpointId = VatId | RemoteId;
-
-type RefTypeTag = 'o' | 'p';
-type RefDirectionTag = '+' | '-';
-type InnerKRef = `${RefTypeTag}${number}`;
-type InnerERef = `${RefTypeTag}${RefDirectionTag}${number}`;
-
-type KRef = `k${InnerKRef}`;
-type VRef = `v${InnerERef}`;
-type RRef = `r${InnerERef}`;
-type ERef = VRef | RRef;
-
-type CapData = {
-  body: string;
-  slots: string[];
-};
-
-type Message = {
-  target: ERef | KRef;
-  method: string;
-  params: CapData;
-};
-
-// Per-endpoint persistent state
-type EndpointState<IdType> = {
-  name: string;
-  id: IdType;
-  nextExportObjectIdCounter: number;
-  nextExportPromiseIdCounter: number;
-  eRefToKRef: Map<ERef, KRef>;
-  kRefToERef: Map<KRef, ERef>;
-};
-
-type VatState = {
-  messagePort: MessagePort;
-  state: EndpointState<VatId>;
-  source: string;
-  kvTable: Map<string, string>;
-};
-
-type RemoteState = {
-  state: EndpointState<RemoteId>;
-  connectToURL: string;
-  // more here about maintaining connection...
-};
-
-// Kernel persistent state
-type KernelObject = {
-  owner: EndpointId;
-  reachableCount: number;
-  recognizableCount: number;
-};
-
-type PromiseState = 'unresolved' | 'fulfilled' | 'rejected';
-
-type KernelPromise = {
-  decider: EndpointId;
-  state: PromiseState;
-  referenceCount: number;
-  messageQueue: Queue<Message>;
-  value: undefined | CapData;
-};
-
-// export temporarily to shut up lint whinges about unusedness
-export type KernelState = {
-  runQueue: Queue<Message>;
-  nextVatIdCounter: number;
-  vats: Map<VatId, VatState>;
-  nextRemoteIdCounter: number;
-  remotes: Map<RemoteId, RemoteState>;
-  nextKernelObjectIdCounter: number;
-  kernelObjects: Map<KRef, KernelObject>;
-  nextKernePromiseIdCounter: number;
-  kernelPromises: Map<KRef, KernelPromise>;
-};
+main({ defaultVatId: 'v0' }).catch(console.error);
 
 /**
  * Ensure that SQLite is initialized.
@@ -115,8 +30,27 @@ async function initDB(): Promise<Database> {
 
 /**
  * The main function for the offscreen script.
+ *
+ * @param options - The options bag.
+ * @param options.defaultVatId - The id to give the default vat.
  */
-async function main(): Promise<void> {
+async function main({ defaultVatId }: MainArgs): Promise<void> {
+  // Note we must setup the worker MessageChannel before initializing the stream,
+  // because the stream will close if it receives an unrecognized message.
+  const clientPort = await receiveMessagePort(
+    (listener) => globalThis.addEventListener('message', listener),
+    (listener) => globalThis.removeEventListener('message', listener),
+  );
+
+  const vatWorkerClient = new ExtensionVatWorkerClient(
+    (message) => clientPort.postMessage(message),
+    (listener) => {
+      clientPort.onmessage = listener;
+    },
+  );
+
+  const startTime = performance.now();
+
   const kernelStream = new PostMessageDuplexStream<
     KernelCommand,
     KernelCommandReply
@@ -126,29 +60,51 @@ async function main(): Promise<void> {
     (listener) => globalThis.removeEventListener('message', listener),
   );
 
+  // Initialize kernel store.
+
   const { sqlKVGet, sqlKVSet } = await initDb();
 
+  // Create kernel.
+
+  const kernel = new Kernel(vatWorkerClient);
+  const vatReadyP = kernel.launchVat({ id: defaultVatId });
+
+  await reply({
+    method: KernelCommandMethod.InitKernel,
+    params: {
+      defaultVat: defaultVatId,
+      initTime: performance.now() - startTime,
+    },
+  });
+
   // Handle messages from the console service worker
-  for await (const message of kernelStream) {
-    if (isKernelWorkerCommand(message)) {
-      await handleKernelCommand(message);
-    } else {
-      console.error('Received unexpected message', message);
-    }
-  }
+  await kernelStream.drain(handleKernelCommand);
 
   /**
    * Handle a KernelCommand sent from the offscreen.
    *
    * @param command - The KernelCommand to handle.
-   * @param command.method - The command method.
-   * @param command.params - The command params.
    */
-  async function handleKernelCommand({
-    method,
-    params,
-  }: KernelWorkerCommand): Promise<void> {
+  async function handleKernelCommand(command: KernelCommand): Promise<void> {
+    if (!isKernelCommand(command)) {
+      logger.error('Received unexpected message', command);
+      return;
+    }
+
+    const { method, params } = command;
+
     switch (method) {
+      case KernelCommandMethod.InitKernel:
+        throw new Error('The kernel starts itself.');
+      case KernelCommandMethod.Ping:
+        await reply({ method, params: 'pong' });
+        break;
+      case KernelCommandMethod.Evaluate:
+        await handleVatTestCommand({ method, params });
+        break;
+      case KernelCommandMethod.CapTpCall:
+        await handleVatTestCommand({ method, params });
+        break;
       case KernelCommandMethod.KVSet:
         kvSet(params.key, params.value);
         await reply({
@@ -182,12 +138,70 @@ async function main(): Promise<void> {
   }
 
   /**
+   * Handle a command implemented by the test vat.
+   *
+   * @param command - The command to handle.
+   */
+  async function handleVatTestCommand(
+    command: Extract<
+      KernelCommand,
+      | { method: typeof KernelCommandMethod.Evaluate }
+      | { method: typeof KernelCommandMethod.CapTpCall }
+    >,
+  ): Promise<void> {
+    const { method, params } = command;
+    const vat = await vatReadyP;
+    switch (method) {
+      case KernelCommandMethod.Evaluate:
+        await reply({
+          method,
+          params: await evaluate(vat.id, params),
+        });
+        break;
+      case KernelCommandMethod.CapTpCall:
+        await reply({
+          method,
+          params: stringify(await vat.callCapTp(params)),
+        });
+        break;
+      default:
+        console.error(
+          'Offscreen received unexpected vat command',
+          // @ts-expect-error Runtime does not respect "never".
+          { method: method.valueOf(), params },
+        );
+    }
+  }
+
+  /**
    * Reply to the background script.
    *
    * @param payload - The payload to reply with.
    */
   async function reply(payload: KernelCommandReply): Promise<void> {
     await kernelStream.write(payload);
+  }
+
+  /**
+   * Evaluate a string in the default iframe.
+   *
+   * @param vatId - The ID of the vat to send the message to.
+   * @param source - The source string to evaluate.
+   * @returns The result of the evaluation, or an error message.
+   */
+  async function evaluate(vatId: VatId, source: string): Promise<string> {
+    try {
+      const result = await kernel.sendMessage(vatId, {
+        method: KernelCommandMethod.Evaluate,
+        params: source,
+      });
+      return String(result);
+    } catch (error) {
+      if (error instanceof Error) {
+        return `Error: ${error.message}`;
+      }
+      return `Error: Unknown error during evaluation.`;
+    }
   }
 
   /**
