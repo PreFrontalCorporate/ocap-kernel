@@ -20,15 +20,7 @@ const config = [
   })),
 
   {
-    ignores: [
-      'yarn.config.cjs',
-      '**/vite.config.ts',
-      '**/vitest.config.ts',
-      'node_modules',
-      '**/dist',
-      '**/docs',
-      '**/coverage',
-    ],
+    ignores: ['node_modules', '**/dist', '**/docs', '**/coverage'],
   },
 
   {
