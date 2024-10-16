@@ -1,4 +1,5 @@
 import '@ocap/shims/endoify';
+import type { DuplexStream } from '@ocap/streams';
 import { MessagePortDuplexStream, MessagePortWriter } from '@ocap/streams';
 import { delay } from '@ocap/test-utils';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -9,23 +10,23 @@ import * as streamEnvelope from './stream-envelope.js';
 import { Supervisor } from './Supervisor.js';
 
 describe('Supervisor', () => {
+  let stream: DuplexStream<StreamEnvelope, StreamEnvelopeReply>;
   let supervisor: Supervisor;
   let messageChannel: MessageChannel;
 
   beforeEach(async () => {
     messageChannel = new MessageChannel();
 
-    const stream = new MessagePortDuplexStream<
-      StreamEnvelope,
-      StreamEnvelopeReply
-    >(messageChannel.port1);
+    stream = new MessagePortDuplexStream<StreamEnvelope, StreamEnvelopeReply>(
+      messageChannel.port1,
+    );
     supervisor = new Supervisor({ id: 'test-id', stream });
   });
 
   describe('init', () => {
     it('initializes the Supervisor correctly', async () => {
+      expect(supervisor).toBeInstanceOf(Supervisor);
       expect(supervisor.id).toBe('test-id');
-      expect(supervisor.stream).toBeDefined();
     });
 
     it('throws if the stream throws', async () => {
@@ -159,9 +160,11 @@ describe('Supervisor', () => {
 
   describe('terminate', () => {
     it('terminates correctly', async () => {
-      expect(messageChannel.port1.onmessage).not.toBeNull();
       await supervisor.terminate();
-      expect(messageChannel.port1.onmessage).toBeNull();
+      expect(await stream.next()).toStrictEqual({
+        done: true,
+        value: undefined,
+      });
     });
   });
 

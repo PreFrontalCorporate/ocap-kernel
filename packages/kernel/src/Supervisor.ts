@@ -26,7 +26,7 @@ type SupervisorConstructorProps = {
 export class Supervisor {
   readonly id: string;
 
-  readonly stream: DuplexStream<StreamEnvelope, StreamEnvelopeReply>;
+  readonly #stream: DuplexStream<StreamEnvelope, StreamEnvelopeReply>;
 
   readonly #defaultCompartment = new Compartment({ URL });
 
@@ -37,7 +37,7 @@ export class Supervisor {
   constructor({ id, stream, bootstrap }: SupervisorConstructorProps) {
     this.id = id;
     this.#bootstrap = bootstrap;
-    this.stream = stream;
+    this.#stream = stream;
 
     const streamEnvelopeHandler = makeStreamEnvelopeHandler(
       {
@@ -47,7 +47,7 @@ export class Supervisor {
       (error) => console.error('Supervisor stream error:', error),
     );
 
-    this.stream
+    this.#stream
       .drain(async (value) => {
         await streamEnvelopeHandler.handle(value);
       })
@@ -64,7 +64,7 @@ export class Supervisor {
    * Terminates the Supervisor.
    */
   async terminate(): Promise<void> {
-    await this.stream.return();
+    await this.#stream.return();
   }
 
   /**
@@ -96,7 +96,7 @@ export class Supervisor {
         this.capTp = makeCapTP(
           'iframe',
           async (content: unknown) =>
-            this.stream.write(wrapCapTp(content as CapTpMessage)),
+            this.#stream.write(wrapCapTp(content as CapTpMessage)),
           this.#bootstrap,
         );
         await this.replyToMessage(id, {
@@ -130,7 +130,7 @@ export class Supervisor {
     id: VatMessageId,
     payload: VatCommandReply['payload'],
   ): Promise<void> {
-    await this.stream.write(wrapStreamCommandReply({ id, payload }));
+    await this.#stream.write(wrapStreamCommandReply({ id, payload }));
   }
 
   /**
