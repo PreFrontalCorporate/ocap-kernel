@@ -1,19 +1,16 @@
 import type { Json } from '@metamask/utils';
+import { ErrorSentinel, marshalError } from '@ocap/errors';
 import { makeErrorMatcherFactory } from '@ocap/test-utils';
-import { stringify } from '@ocap/utils';
 import { describe, expect, it } from 'vitest';
 
 import type { Dispatchable } from './utils.js';
 import {
   assertIsWritable,
-  ErrorSentinel,
   isDispatchable,
   makeDoneResult,
   makePendingResult,
   marshal,
-  marshalError,
   unmarshal,
-  unmarshalError,
 } from './utils.js';
 
 const makeErrorMatcher = makeErrorMatcherFactory(expect);
@@ -86,93 +83,6 @@ describe('makePendingResult', () => {
     const result = makePendingResult(42);
     expect(result).toStrictEqual({ done: false, value: 42 });
     expect(globalThis.harden).toHaveBeenCalledWith(makePendingResult(42));
-  });
-});
-
-describe('marshalError', () => {
-  it('should marshal an error', () => {
-    const error = new Error('foo');
-    const marshaledError = marshalError(error);
-    expect(marshaledError).toStrictEqual(
-      expect.objectContaining({
-        [ErrorSentinel]: true,
-        message: 'foo',
-        stack: expect.any(String),
-      }),
-    );
-  });
-
-  it('should marshal an error with a cause', () => {
-    const cause = new Error('baz');
-    const error = new Error('foo', { cause });
-    const marshaledError = marshalError(error);
-    expect(marshaledError).toStrictEqual(
-      expect.objectContaining({
-        [ErrorSentinel]: true,
-        message: 'foo',
-        stack: expect.any(String),
-        cause: {
-          [ErrorSentinel]: true,
-          message: 'baz',
-          stack: expect.any(String),
-        },
-      }),
-    );
-  });
-
-  it('should marshal an error with a non-error cause', () => {
-    const cause = { bar: 'baz' };
-    const error = new Error('foo', { cause });
-    const marshaledError = marshalError(error);
-    expect(marshaledError).toStrictEqual(
-      expect.objectContaining({
-        [ErrorSentinel]: true,
-        message: 'foo',
-        stack: expect.any(String),
-        cause: stringify(cause),
-      }),
-    );
-  });
-});
-
-describe('unmarshalError', () => {
-  it('should unmarshal a marshaled error', () => {
-    const marshaledError = {
-      [ErrorSentinel]: true,
-      message: 'foo',
-      stack: 'bar',
-    } as const;
-    expect(unmarshalError(marshaledError)).toStrictEqual(
-      makeErrorMatcher('foo'),
-    );
-  });
-
-  it('should unmarshal a marshaled error with a cause', () => {
-    const marshaledError = {
-      [ErrorSentinel]: true,
-      message: 'foo',
-      stack: 'bar',
-      cause: {
-        [ErrorSentinel]: true,
-        message: 'baz',
-        stack: 'qux',
-      },
-    } as const;
-    expect(unmarshalError(marshaledError)).toStrictEqual(
-      makeErrorMatcher(new Error('foo', { cause: new Error('baz') })),
-    );
-  });
-
-  it('should unmarshal a marshaled error with a string cause', () => {
-    const marshaledError = {
-      [ErrorSentinel]: true,
-      message: 'foo',
-      stack: 'bar',
-      cause: 'baz',
-    } as const;
-    expect(unmarshalError(marshaledError)).toStrictEqual(
-      makeErrorMatcher(new Error('foo', { cause: 'baz' })),
-    );
   });
 });
 
