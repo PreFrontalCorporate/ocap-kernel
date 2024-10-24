@@ -1,5 +1,6 @@
 import '@ocap/shims/endoify';
 
+import { isObject } from '@metamask/utils';
 import type { Json } from '@metamask/utils';
 import type { ExtractGuardType, TypeGuard } from '@ocap/utils';
 
@@ -8,9 +9,9 @@ import { uncapitalize } from './utils.js';
 
 // Message kit.
 
-type BoolExpr = (value: unknown) => boolean;
+export type BoolExpr = (value: unknown) => boolean;
 
-type SourceLike = Record<string, [BoolExpr, BoolExpr]>;
+export type SourceLike = Record<string, [BoolExpr, BoolExpr]>;
 
 type MessageUnion<Source extends SourceLike, Index extends 0 | 1> = {
   [Key in keyof Source]: Key extends string
@@ -94,4 +95,46 @@ export const makeMessageKit = <Source extends SourceLike>(
     sendGuard: makeGuard(source, methods, 0),
     replyGuard: makeGuard(source, methods, 1),
   } as MessageKit<Source>;
+};
+
+/**
+ * An object type encapsulating all of the schematics that define a functional
+ * group of messages as a payload wrapped with a message id.
+ */
+type IdentifiedMessageKit<
+  Source extends SourceLike,
+  MessageId extends string,
+> = {
+  source: Source;
+  methods: Methods<Source>;
+  send: { id: MessageId; payload: Send<Source> };
+  sendGuard: TypeGuard<{ id: MessageId; payload: Send<Source> }>;
+  reply: { id: MessageId; payload: Reply<Source> };
+  replyGuard: TypeGuard<{ id: MessageId; payload: Reply<Source> }>;
+};
+
+export const makeIdentifiedMessageKit = <
+  Source extends SourceLike,
+  MessageId extends string,
+>({
+  source,
+  isMessageId,
+}: {
+  source: Source;
+  isMessageId: TypeGuard<MessageId>;
+}): IdentifiedMessageKit<Source, MessageId> => {
+  const messageKit = makeMessageKit(source);
+
+  return {
+    source: messageKit.source,
+    methods: messageKit.methods,
+    sendGuard: (value: unknown) =>
+      isObject(value) &&
+      isMessageId(value.id) &&
+      messageKit.sendGuard(value.payload),
+    replyGuard: (value: unknown) =>
+      isObject(value) &&
+      isMessageId(value.id) &&
+      messageKit.replyGuard(value.payload),
+  } as IdentifiedMessageKit<Source, MessageId>;
 };

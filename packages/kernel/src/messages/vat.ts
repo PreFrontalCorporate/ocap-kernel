@@ -1,7 +1,7 @@
-import { makeMessageKit, messageType } from './message-kit.js';
-import type { VatMessage } from './vat-message.js';
-import { isVatMessage } from './vat-message.js';
+import { makeIdentifiedMessageKit, messageType } from './message-kit.js';
 import { vatTestCommand } from './vat-test.js';
+import { isVatId } from '../types.js';
+import type { VatId } from '../types.js';
 
 export const vatCommand = {
   CapTpInit: messageType<null, string>(
@@ -12,14 +12,18 @@ export const vatCommand = {
   ...vatTestCommand,
 };
 
-const vatMessageKit = makeMessageKit(vatCommand);
+const vatMessageKit = makeIdentifiedMessageKit({
+  source: vatCommand,
+  isMessageId: (value: unknown): value is `${VatId}:${number}` =>
+    typeof value === 'string' &&
+    /^\w+:\d+$/u.test(value) &&
+    isVatId(value.split(':')[0]),
+});
 
 export const VatCommandMethod = vatMessageKit.methods;
 
-export type VatCommand = VatMessage<typeof vatMessageKit.send>;
-export const isVatCommand = (value: unknown): value is VatCommand =>
-  isVatMessage(value) && vatMessageKit.sendGuard(value.payload);
+export type VatCommand = typeof vatMessageKit.send;
+export const isVatCommand = vatMessageKit.sendGuard;
 
-export type VatCommandReply = VatMessage<typeof vatMessageKit.reply>;
-export const isVatCommandReply = (value: unknown): value is VatCommandReply =>
-  isVatMessage(value) && vatMessageKit.replyGuard(value.payload);
+export type VatCommandReply = typeof vatMessageKit.reply;
+export const isVatCommandReply = vatMessageKit.replyGuard;

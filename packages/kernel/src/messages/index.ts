@@ -1,7 +1,3 @@
-// Base messages.
-
-export type { VatMessageId } from './vat-message.js';
-
 // CapTP.
 
 export { isCapTpPayload, isCapTpMessage } from './captp.js';
@@ -29,5 +25,17 @@ export type { KernelCommand, KernelCommandReply } from './kernel.js';
 
 export { VatCommandMethod, isVatCommand, isVatCommandReply } from './vat.js';
 export type { VatCommand, VatCommandReply } from './vat.js';
+
+// Vat worker service commands.
+
+export {
+  VatWorkerServiceCommandMethod,
+  isVatWorkerServiceCommand,
+  isVatWorkerServiceCommandReply,
+} from './vat-worker-service.js';
+export type {
+  VatWorkerServiceCommand,
+  VatWorkerServiceCommandReply,
+} from './vat-worker-service.js';
 
 // Syscalls.

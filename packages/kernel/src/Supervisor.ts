@@ -7,7 +7,6 @@ import type {
   CapTpMessage,
   VatCommand,
   VatCommandReply,
-  VatMessageId,
 } from './messages/index.js';
 import { VatCommandMethod } from './messages/index.js';
 import type { StreamEnvelope, StreamEnvelopeReply } from './stream-envelope.js';
@@ -127,7 +126,7 @@ export class Supervisor {
    * @param payload - The payload to reply with.
    */
   async replyToMessage(
-    id: VatMessageId,
+    id: VatCommand['id'],
     payload: VatCommandReply['payload'],
   ): Promise<void> {
     await this.#stream.write(wrapStreamCommandReply({ id, payload }));
