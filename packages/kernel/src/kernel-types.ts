@@ -1,28 +1,27 @@
 /**
  * A structured representation of an ocap kernel.
  */
-type Queue<Type> = Type[];
 
-type VatId = `v${number}`;
-type RemoteId = `r${number}`;
-type EndpointId = VatId | RemoteId;
+export type VatId = `v${string}`;
+export type RemoteId = `r${string}`;
+export type EndpointId = VatId | RemoteId;
 
 type RefTypeTag = 'o' | 'p';
 type RefDirectionTag = '+' | '-';
-type InnerKRef = `${RefTypeTag}${number}`;
-type InnerERef = `${RefTypeTag}${RefDirectionTag}${number}`;
+type InnerKRef = `${RefTypeTag}${string}`;
+type InnerERef = `${RefTypeTag}${RefDirectionTag}${string}`;
 
-type KRef = `k${InnerKRef}`;
-type VRef = `v${InnerERef}`;
-type RRef = `r${InnerERef}`;
-type ERef = VRef | RRef;
+export type KRef = `k${InnerKRef}`;
+export type VRef = `v${InnerERef}`;
+export type RRef = `r${InnerERef}`;
+export type ERef = VRef | RRef;
 
 type CapData = {
   body: string;
   slots: string[];
 };
 
-type Message = {
+export type Message = {
   target: ERef | KRef;
   method: string;
   params: CapData;
@@ -52,31 +51,18 @@ type RemoteState = {
 };
 
 // Kernel persistent state
-type KernelObject = {
-  owner: EndpointId;
-  reachableCount: number;
-  recognizableCount: number;
-};
 
-type PromiseState = 'unresolved' | 'fulfilled' | 'rejected';
+export type PromiseState = 'unresolved' | 'fulfilled' | 'rejected';
 
-type KernelPromise = {
-  decider: EndpointId;
+export type KernelPromise = {
   state: PromiseState;
-  referenceCount: number;
-  messageQueue: Queue<Message>;
-  value: undefined | CapData;
+  decider?: EndpointId;
+  subscribers?: EndpointId[];
+  value?: CapData;
 };
 
-// export temporarily to shut up lint whinges about unusedness
 export type KernelState = {
-  runQueue: Queue<Message>;
-  nextVatIdCounter: number;
   vats: Map<VatId, VatState>;
-  nextRemoteIdCounter: number;
   remotes: Map<RemoteId, RemoteState>;
-  nextKernelObjectIdCounter: number;
-  kernelObjects: Map<KRef, KernelObject>;
-  nextKernePromiseIdCounter: number;
   kernelPromises: Map<KRef, KernelPromise>;
 };
