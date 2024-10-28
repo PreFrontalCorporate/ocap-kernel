@@ -1,7 +1,10 @@
 import '@ocap/shims/endoify';
-import type { PromiseKit } from '@endo/promise-kit';
-import { makePromiseKit } from '@endo/promise-kit';
-import { VatAlreadyExistsError, VatNotFoundError, toError } from '@ocap/errors';
+import {
+  StreamReadError,
+  VatAlreadyExistsError,
+  VatNotFoundError,
+  toError,
+} from '@ocap/errors';
 import type { DuplexStream } from '@ocap/streams';
 import type { Logger } from '@ocap/utils';
 import { makeLogger, stringify } from '@ocap/utils';
@@ -29,9 +32,6 @@ export class Kernel {
 
   readonly #storage: KVStore;
 
-  // Hopefully removed when we get to n+1 vats.
-  readonly #defaultVatKit: PromiseKit<Vat>;
-
   readonly #logger: Logger;
 
   constructor(
@@ -44,16 +44,19 @@ export class Kernel {
     this.#vats = new Map();
     this.#vatWorkerService = vatWorkerService;
     this.#storage = storage;
-    this.#defaultVatKit = makePromiseKit<Vat>();
     this.#logger = logger ?? makeLogger('[ocap kernel]');
   }
 
-  async init({ defaultVatId }: { defaultVatId: VatId }): Promise<void> {
-    await this.launchVat({ id: defaultVatId })
-      .then(this.#defaultVatKit.resolve)
-      .catch(this.#defaultVatKit.reject);
-
-    return this.#receiveMessages();
+  async init(): Promise<void> {
+    this.#receiveMessages().catch((error) => {
+      this.#logger.error('Stream read error occurred:', error);
+      // Errors thrown here will not be surfaced in the usual synchronous manner
+      // because #receiveMessages() is awaited within the constructor.
+      // Any error thrown inside the async loop is 'caught' within this constructor
+      // call stack but will be displayed as 'Uncaught (in promise)'
+      // since they occur after the constructor has returned.
+      throw new StreamReadError({ kernelId: 'kernel' }, error);
+    });
   }
 
   async #receiveMessages(): Promise<void> {
@@ -72,14 +75,20 @@ export class Kernel {
           await this.#reply({ method, params: 'pong' });
           break;
         case KernelCommandMethod.Evaluate:
-          vat = await this.#defaultVatKit.promise;
+          if (!this.#vats.size) {
+            throw new Error('No vats available to call');
+          }
+          vat = this.#vats.values().next().value as Vat;
           await this.#reply({
             method,
             params: await this.evaluate(vat.id, params),
           });
           break;
         case KernelCommandMethod.CapTpCall:
-          vat = await this.#defaultVatKit.promise;
+          if (!this.#vats.size) {
+            throw new Error('No vats available to call');
+          }
+          vat = this.#vats.values().next().value as Vat;
           await this.#reply({
             method,
             params: stringify(await vat.callCapTp(params)),
@@ -155,7 +164,7 @@ export class Kernel {
   }
 
   /**
-   * Gets the vat IDs in the kernel.
+   * Gets the vat IDs.
    *
    * @returns An array of vat IDs.
    */
@@ -164,7 +173,7 @@ export class Kernel {
   }
 
   /**
-   * Launches a vat in the kernel.
+   * Launches a vat.
    *
    * @param options - The options for launching the vat.
    * @param options.id - The ID of the vat.
@@ -182,15 +191,39 @@ export class Kernel {
   }
 
   /**
-   * Deletes a vat from the kernel.
+   * Restarts a vat.
    *
    * @param id - The ID of the vat.
    */
-  async deleteVat(id: VatId): Promise<void> {
+  async restartVat(id: VatId): Promise<void> {
+    await this.terminateVat(id);
+    await this.launchVat({ id });
+  }
+
+  /**
+   * Terminate a vat.
+   *
+   * @param id - The ID of the vat.
+   */
+  async terminateVat(id: VatId): Promise<void> {
     const vat = this.#getVat(id);
     await vat.terminate();
     await this.#vatWorkerService.terminate(id).catch(console.error);
     this.#vats.delete(id);
+  }
+
+  /**
+   * Terminate all vats.
+   */
+  async terminateAllVats(): Promise<void> {
+    await Promise.all(
+      this.getVatIds().map(async (id) => {
+        const vat = this.#getVat(id);
+        await vat.terminate();
+        this.#vats.delete(id);
+      }),
+    );
+    await this.#vatWorkerService.terminateAll();
   }
 
   /**
@@ -209,7 +242,7 @@ export class Kernel {
   }
 
   /**
-   * Gets a vat from the kernel.
+   * Gets a vat.
    *
    * @param id - The ID of the vat.
    * @returns The vat.

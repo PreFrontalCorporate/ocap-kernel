@@ -34,6 +34,18 @@ describe('StreamReadError', () => {
     expect(error.cause).toBe(mockOriginalError);
   });
 
+  it('creates a StreamReadError for Kernel with the correct properties', () => {
+    const error = new StreamReadError(
+      { kernelId: 'kernel' },
+      { cause: mockOriginalError },
+    );
+    expect(error).toBeInstanceOf(StreamReadError);
+    expect(error.code).toBe(ErrorCode.StreamReadError);
+    expect(error.message).toBe('Unexpected stream read error.');
+    expect(error.data).toStrictEqual({ kernelId: 'kernel' });
+    expect(error.cause).toBe(mockOriginalError);
+  });
+
   it('unmarshals a valid marshaled StreamReadError for Vat', () => {
     const data = { vatId: mockVatId };
     const marshaledError: MarshaledOcapError = {
@@ -106,7 +118,7 @@ describe('StreamReadError', () => {
     expect(() =>
       StreamReadError.unmarshal(marshaledError, unmarshalErrorOptions),
     ).toThrow(
-      'At path: data -- Expected the value to satisfy a union of `object | object`, but received: "invalid data"',
+      'At path: data -- Expected the value to satisfy a union of `object | object | object`, but received: "invalid data"',
     );
   });
 
@@ -127,7 +139,7 @@ describe('StreamReadError', () => {
     expect(() =>
       StreamReadError.unmarshal(marshaledError, unmarshalErrorOptions),
     ).toThrow(
-      'At path: data -- Expected the value to satisfy a union of `object | object`, but received: [object Object]',
+      'At path: data -- Expected the value to satisfy a union of `object | object | object`, but received: [object Object]',
     );
   });
 });
