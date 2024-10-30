@@ -4,7 +4,7 @@ import path from 'path';
 import {
   buildDir,
   sourceDir,
-  jsTrustedPreludes,
+  trustedPreludes,
 } from '../scripts/build-constants.mjs';
 
 const untransformedFiles = [
@@ -13,10 +13,10 @@ const untransformedFiles = [
     builtPath: path.resolve(buildDir, 'endoify.js'),
   },
   {
-    sourcePath: path.resolve(sourceDir, 'dev-console.js'),
+    sourcePath: path.resolve(sourceDir, 'env/dev-console.js'),
     builtPath: path.resolve(buildDir, 'dev-console.js'),
   },
-  ...Object.values(jsTrustedPreludes).map((preludePath) => ({
+  ...Object.values(trustedPreludes).map((preludePath) => ({
     sourcePath: preludePath,
     builtPath: path.join(buildDir, path.basename(preludePath)),
   })),
@@ -63,14 +63,11 @@ async function checkUntransformed() {
 async function checkTrustedPreludes() {
   console.log('Checking that trusted preludes are loaded at the top...');
 
-  for (const [preludeName, preludePath] of Object.entries(jsTrustedPreludes)) {
+  for (const [preludeName, preludePath] of Object.entries(trustedPreludes)) {
     const expectedImport = path.basename(preludePath);
     const builtFilePath = path.join(buildDir, `${preludeName}.js`);
     const content = await fs.readFile(builtFilePath, 'utf8');
-    if (
-      !content.startsWith(`import"./${expectedImport}";`) &&
-      !content.startsWith(`import "./${expectedImport}";`)
-    ) {
+    if (!content.startsWith(`import "./${expectedImport}";`)) {
       throw new Error(
         `The trusted prelude ${expectedImport} is not imported in the first position in ${preludeName}.js`,
       );

@@ -13,14 +13,15 @@
     { "path": "../shims" },
     { "path": "../streams" },
     { "path": "../test-utils" },
-    { "path": "../utils" }
+    { "path": "../utils" },
+    { "path": "../kernel" }
   ],
   "include": [
     "../../vitest.config.packages.ts",
     "./scripts/build-constants.mjs",
     "./src/**/*.ts",
     "./src/**/*-trusted-prelude.js",
-    "./src/dev-console.js",
+    "./src/env/dev-console.js",
     "./test/**/*.ts",
     "./vite-plugins/*.ts",
     "./vite.config.ts",

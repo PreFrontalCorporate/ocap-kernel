@@ -9,7 +9,7 @@ import { viteStaticCopy } from 'vite-plugin-static-copy';
 import {
   sourceDir,
   buildDir,
-  jsTrustedPreludes,
+  trustedPreludes,
 } from './scripts/build-constants.mjs';
 import { htmlTrustedPrelude } from './vite-plugins/html-trusted-prelude.js';
 import { jsTrustedPrelude } from './vite-plugins/js-trusted-prelude.js';
@@ -22,10 +22,10 @@ const staticCopyTargets: readonly string[] = [
   // The extension manifest
   'manifest.json',
   // External modules
-  'dev-console.js',
+  'env/dev-console.js',
   '../../shims/dist/endoify.js',
   // Trusted preludes
-  ...new Set(Object.values(jsTrustedPreludes)),
+  ...new Set(Object.values(trustedPreludes)),
 ];
 
 // https://vitejs.dev/config/
@@ -38,7 +38,7 @@ export default defineConfig(({ mode }) => ({
     rollupOptions: {
       input: {
         background: path.resolve(sourceDir, 'background.ts'),
-        'kernel-worker': path.resolve(sourceDir, 'kernel-worker.ts'),
+        'kernel-worker': path.resolve(sourceDir, 'kernel/kernel-worker.ts'),
         offscreen: path.resolve(sourceDir, 'offscreen.html'),
         iframe: path.resolve(sourceDir, 'iframe.html'),
       },
@@ -58,9 +58,7 @@ export default defineConfig(({ mode }) => ({
 
   plugins: [
     htmlTrustedPrelude(),
-    jsTrustedPrelude({
-      trustedPreludes: jsTrustedPreludes,
-    }),
+    jsTrustedPrelude({ trustedPreludes }),
     viteStaticCopy({
       targets: staticCopyTargets.map((src) => ({ src, dest: './' })),
       watch: { reloadPageOnChange: true },
