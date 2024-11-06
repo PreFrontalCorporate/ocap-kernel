@@ -3,6 +3,7 @@ import { stringify } from '@ocap/utils';
 import { describe, expect, it, vi } from 'vitest';
 
 import { makeAck } from './BaseDuplexStream.js';
+import type { ValidateInput } from './BaseStream.js';
 import type { ChromeRuntime } from './chrome.js';
 import type { MessageEnvelope } from './ChromeRuntimeStream.js';
 import {
@@ -92,6 +93,25 @@ describe('ChromeRuntimeReader', () => {
     dispatchRuntimeMessage(message);
 
     expect(await reader.next()).toStrictEqual(makePendingResult(message));
+  });
+
+  it('calls validateInput with received input if specified', async () => {
+    const { runtime, dispatchRuntimeMessage } = makeRuntime();
+    const validateInput = vi
+      .fn()
+      .mockReturnValue(true) as unknown as ValidateInput<number>;
+    const reader = new ChromeRuntimeReader(
+      asChromeRuntime(runtime),
+      ChromeRuntimeStreamTarget.Background,
+      ChromeRuntimeStreamTarget.Offscreen,
+      { validateInput },
+    );
+
+    const message = { foo: 'bar' };
+    dispatchRuntimeMessage(message);
+
+    expect(await reader.next()).toStrictEqual(makePendingResult(message));
+    expect(validateInput).toHaveBeenCalledWith(message);
   });
 
   it('ignores messages from other extensions', async () => {
@@ -187,7 +207,7 @@ describe('ChromeRuntimeReader', () => {
       asChromeRuntime(runtime),
       ChromeRuntimeStreamTarget.Background,
       ChromeRuntimeStreamTarget.Offscreen,
-      onEnd,
+      { onEnd },
     );
 
     dispatchRuntimeMessage(makeStreamDoneSignal());
@@ -251,12 +271,13 @@ describe.concurrent('ChromeRuntimeWriter', () => {
 
 describe.concurrent('ChromeRuntimeDuplexStream', () => {
   // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
-  const makeDuplexStream = async () => {
+  const makeDuplexStream = async (validateInput?: ValidateInput<number>) => {
     const { runtime, dispatchRuntimeMessage } = makeRuntime();
     const duplexStreamP = ChromeRuntimeDuplexStream.make(
       asChromeRuntime(runtime),
       ChromeRuntimeStreamTarget.Background,
       ChromeRuntimeStreamTarget.Offscreen,
+      validateInput,
     );
     dispatchRuntimeMessage(makeAck());
 
@@ -280,6 +301,20 @@ describe.concurrent('ChromeRuntimeDuplexStream', () => {
 
     expect(duplexStream).toBeInstanceOf(ChromeRuntimeDuplexStream);
     expect(duplexStream[Symbol.asyncIterator]()).toBe(duplexStream);
+  });
+
+  it('calls validateInput with received input if specified', async () => {
+    const validateInput = vi
+      .fn()
+      .mockReturnValue(true) as unknown as ValidateInput<number>;
+    const [duplexStream, { dispatchRuntimeMessage }] =
+      await makeDuplexStream(validateInput);
+
+    const message = { foo: 'bar' };
+    dispatchRuntimeMessage(message);
+
+    expect(await duplexStream.next()).toStrictEqual(makePendingResult(message));
+    expect(validateInput).toHaveBeenCalledWith(message);
   });
 
   it('ends the reader when the writer ends', async () => {

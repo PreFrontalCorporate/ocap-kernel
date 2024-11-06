@@ -18,7 +18,12 @@ import type { Json } from '@metamask/utils';
 import { stringify } from '@ocap/utils';
 
 import { BaseDuplexStream } from './BaseDuplexStream.js';
-import type { OnEnd, ReceiveInput } from './BaseStream.js';
+import type {
+  BaseReaderArgs,
+  ValidateInput,
+  OnEnd,
+  ReceiveInput,
+} from './BaseStream.js';
 import { BaseReader, BaseWriter } from './BaseStream.js';
 import type { ChromeRuntime, ChromeMessageSender } from './chrome.js';
 import type { Dispatchable } from './utils.js';
@@ -67,7 +72,7 @@ export class ChromeRuntimeReader<Read extends Json> extends BaseReader<Read> {
     runtime: ChromeRuntime,
     target: ChromeRuntimeStreamTarget,
     source: ChromeRuntimeStreamTarget,
-    onEnd?: OnEnd,
+    { validateInput, onEnd }: BaseReaderArgs<Read> = {},
   ) {
     // eslint-disable-next-line prefer-const
     let messageListener: (
@@ -75,9 +80,12 @@ export class ChromeRuntimeReader<Read extends Json> extends BaseReader<Read> {
       sender: ChromeMessageSender,
     ) => void;
 
-    super(async () => {
-      runtime.onMessage.removeListener(messageListener);
-      await onEnd?.();
+    super({
+      validateInput,
+      onEnd: async () => {
+        runtime.onMessage.removeListener(messageListener);
+        await onEnd?.();
+      },
     });
 
     this.#receiveInput = super.getReceiveInput();
@@ -176,14 +184,18 @@ export class ChromeRuntimeDuplexStream<
     runtime: ChromeRuntime,
     localTarget: ChromeRuntimeStreamTarget,
     remoteTarget: ChromeRuntimeStreamTarget,
+    validateInput?: ValidateInput<Read>,
   ) {
     let writer: ChromeRuntimeWriter<Write>; // eslint-disable-line prefer-const
     const reader = new ChromeRuntimeReader<Read>(
       runtime,
       localTarget,
       remoteTarget,
-      async () => {
-        await writer.return();
+      {
+        validateInput,
+        onEnd: async () => {
+          await writer.return();
+        },
       },
     );
     writer = new ChromeRuntimeWriter<Write>(
@@ -202,6 +214,7 @@ export class ChromeRuntimeDuplexStream<
     runtime: ChromeRuntime,
     localTarget: ChromeRuntimeStreamTarget,
     remoteTarget: ChromeRuntimeStreamTarget,
+    validateInput?: ValidateInput<Read>,
   ): Promise<ChromeRuntimeDuplexStream<Read, Write>> {
     if (localTarget === remoteTarget) {
       throw new Error('localTarget and remoteTarget must be different');
@@ -211,6 +224,7 @@ export class ChromeRuntimeDuplexStream<
       runtime,
       localTarget,
       remoteTarget,
+      validateInput,
     );
     await stream.synchronize();
     return stream;

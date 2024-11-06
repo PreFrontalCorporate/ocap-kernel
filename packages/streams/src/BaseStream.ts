@@ -95,10 +95,20 @@ harden(makeStreamBuffer);
 export type OnEnd = () => void | Promise<void>;
 
 /**
+ * A function that validates input to a readable stream.
+ */
+export type ValidateInput<Read extends Json> = (input: Json) => input is Read;
+
+/**
  * A function that receives input from a transport mechanism to a readable stream.
  * Validates that the input is an {@link IteratorResult}, and throws if it is not.
  */
 export type ReceiveInput = (input: unknown) => void;
+
+export type BaseReaderArgs<Read extends Json> = {
+  validateInput?: ValidateInput<Read> | undefined;
+  onEnd?: OnEnd | undefined;
+};
 
 /**
  * The base of a readable async iterator stream.
@@ -117,6 +127,8 @@ export class BaseReader<Read extends Json> implements Reader<Read> {
    */
   readonly #buffer = makeStreamBuffer<IteratorResult<Read, undefined>>();
 
+  readonly #validateInput?: ValidateInput<Read> | undefined;
+
   #onEnd?: OnEnd | undefined;
 
   #didExposeReceiveInput: boolean = false;
@@ -124,10 +136,13 @@ export class BaseReader<Read extends Json> implements Reader<Read> {
   /**
    * Constructs a {@link BaseReader}.
    *
-   * @param onEnd - A function that is called when the stream ends. For any cleanup that
+   * @param args - Options bag.
+   * @param args.validateInput - A function that validates input from the transport.
+   * @param args.onEnd - A function that is called when the stream ends. For any cleanup that
    * should happen when the stream ends, such as closing a message port.
    */
-  constructor(onEnd?: () => void) {
+  constructor({ validateInput, onEnd }: BaseReaderArgs<Read>) {
+    this.#validateInput = validateInput;
     this.#onEnd = onEnd;
     harden(this);
   }
@@ -148,22 +163,17 @@ export class BaseReader<Read extends Json> implements Reader<Read> {
 
   readonly #receiveInput: ReceiveInput = async (input) => {
     if (!isDispatchable(input)) {
-      const error = new Error(
-        `Received unexpected message from transport:\n${stringify(input)}`,
+      await this.#handleInputError(
+        new Error(
+          `Message cannot be processed by stream (must be JSON-serializable):\n${stringify(input)}`,
+        ),
       );
-      if (!this.#buffer.hasPendingReads()) {
-        this.#buffer.put(error);
-      }
-      await this.#end(error);
       return;
     }
 
     const unmarshaled = unmarshal(input);
     if (unmarshaled instanceof Error) {
-      if (!this.#buffer.hasPendingReads()) {
-        this.#buffer.put(unmarshaled);
-      }
-      await this.#end(unmarshaled);
+      await this.#handleInputError(unmarshaled);
       return;
     }
 
@@ -172,8 +182,22 @@ export class BaseReader<Read extends Json> implements Reader<Read> {
       return;
     }
 
-    this.#buffer.put(makePendingResult(unmarshaled as Read));
+    if (this.#validateInput?.(unmarshaled) === false) {
+      await this.#handleInputError(
+        new Error(`Message failed type validation:\n${stringify(unmarshaled)}`),
+      );
+      return;
+    }
+
+    this.#buffer.put(makePendingResult(unmarshaled));
   };
+
+  async #handleInputError(error: Error): Promise<void> {
+    if (!this.#buffer.hasPendingReads()) {
+      this.#buffer.put(error);
+    }
+    await this.#end(error);
+  }
 
   /**
    * Ends the stream. Calls and then unsets the `#onEnd` method.
