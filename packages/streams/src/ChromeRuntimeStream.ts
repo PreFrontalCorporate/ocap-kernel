@@ -17,7 +17,10 @@
 import type { Json } from '@metamask/utils';
 import { stringify } from '@ocap/utils';
 
-import { BaseDuplexStream } from './BaseDuplexStream.js';
+import {
+  BaseDuplexStream,
+  makeDuplexStreamInputValidator,
+} from './BaseDuplexStream.js';
 import type {
   BaseReaderArgs,
   ValidateInput,
@@ -26,6 +29,7 @@ import type {
 } from './BaseStream.js';
 import { BaseReader, BaseWriter } from './BaseStream.js';
 import type { ChromeRuntime, ChromeMessageSender } from './chrome.js';
+import { isMultiplexEnvelope, StreamMultiplexer } from './StreamMultiplexer.js';
 import type { Dispatchable } from './utils.js';
 
 export enum ChromeRuntimeStreamTarget {
@@ -123,7 +127,9 @@ export class ChromeRuntimeReader<Read extends Json> extends BaseReader<Read> {
       return;
     }
 
-    this.#receiveInput(message.payload);
+    this.#receiveInput(message.payload).catch(async (error) =>
+      this.throw(error),
+    );
   }
 }
 harden(ChromeRuntimeReader);
@@ -178,9 +184,7 @@ export class ChromeRuntimeDuplexStream<
   Write,
   ChromeRuntimeWriter<Write>
 > {
-  // Unavoidable exception to our preference for #-private names.
-  // eslint-disable-next-line no-restricted-syntax
-  private constructor(
+  constructor(
     runtime: ChromeRuntime,
     localTarget: ChromeRuntimeStreamTarget,
     remoteTarget: ChromeRuntimeStreamTarget,
@@ -193,7 +197,7 @@ export class ChromeRuntimeDuplexStream<
       remoteTarget,
       {
         name: 'ChromeRuntimeDuplexStream',
-        validateInput,
+        validateInput: makeDuplexStreamInputValidator(validateInput),
         onEnd: async () => {
           await writer.return();
         },
@@ -235,3 +239,24 @@ export class ChromeRuntimeDuplexStream<
   }
 }
 harden(ChromeRuntimeDuplexStream);
+
+export class ChromeRuntimeMultiplexer extends StreamMultiplexer {
+  constructor(
+    runtime: ChromeRuntime,
+    localTarget: ChromeRuntimeStreamTarget,
+    remoteTarget: ChromeRuntimeStreamTarget,
+    name?: string,
+  ) {
+    super(
+      new ChromeRuntimeDuplexStream(
+        runtime,
+        localTarget,
+        remoteTarget,
+        isMultiplexEnvelope,
+      ),
+      name,
+    );
+    harden(this);
+  }
+}
+harden(ChromeRuntimeMultiplexer);

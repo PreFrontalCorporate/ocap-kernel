@@ -11,7 +11,9 @@ import {
   ChromeRuntimeWriter,
   ChromeRuntimeStreamTarget,
   ChromeRuntimeDuplexStream,
+  ChromeRuntimeMultiplexer,
 } from './ChromeRuntimeStream.js';
+import { StreamMultiplexer } from './StreamMultiplexer.js';
 import {
   makeDoneResult,
   makePendingResult,
@@ -114,6 +116,24 @@ describe('ChromeRuntimeReader', () => {
     expect(validateInput).toHaveBeenCalledWith(message);
   });
 
+  it('throws if validateInput throws', async () => {
+    const { runtime, dispatchRuntimeMessage } = makeRuntime();
+    const validateInput = (() => {
+      throw new Error('foo');
+    }) as unknown as ValidateInput<number>;
+    const reader = new ChromeRuntimeReader(
+      asChromeRuntime(runtime),
+      ChromeRuntimeStreamTarget.Background,
+      ChromeRuntimeStreamTarget.Offscreen,
+      { validateInput },
+    );
+
+    const message = { foo: 'bar' };
+    dispatchRuntimeMessage(message);
+    await expect(reader.next()).rejects.toThrow('foo');
+    expect(await reader.next()).toStrictEqual(makeDoneResult());
+  });
+
   it('ignores messages from other extensions', async () => {
     const { runtime, dispatchRuntimeMessage } = makeRuntime();
     const reader = new ChromeRuntimeReader(
@@ -203,6 +223,25 @@ describe('ChromeRuntimeReader', () => {
   it('calls onEnd once when ending', async () => {
     const { runtime, dispatchRuntimeMessage } = makeRuntime();
     const onEnd = vi.fn();
+    const reader = new ChromeRuntimeReader(
+      asChromeRuntime(runtime),
+      ChromeRuntimeStreamTarget.Background,
+      ChromeRuntimeStreamTarget.Offscreen,
+      { onEnd },
+    );
+
+    dispatchRuntimeMessage(makeStreamDoneSignal());
+    expect(await reader.next()).toStrictEqual(makeDoneResult());
+    expect(onEnd).toHaveBeenCalledTimes(1);
+    expect(await reader.next()).toStrictEqual(makeDoneResult());
+    expect(onEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('handles errors from onEnd function', async () => {
+    const { runtime, dispatchRuntimeMessage } = makeRuntime();
+    const onEnd = vi.fn(() => {
+      throw new Error('foo');
+    });
     const reader = new ChromeRuntimeReader(
       asChromeRuntime(runtime),
       ChromeRuntimeStreamTarget.Background,
@@ -337,5 +376,40 @@ describe.concurrent('ChromeRuntimeDuplexStream', () => {
     await delay(10);
     expect(await duplexStream.write(42)).toStrictEqual(makeDoneResult());
     expect(await readP).toStrictEqual(makeDoneResult());
+  });
+});
+
+describe('ChromeRuntimeMultiplexer', () => {
+  it('constructs a ChromeRuntimeMultiplexer', () => {
+    const multiplexer = new ChromeRuntimeMultiplexer(
+      asChromeRuntime(makeRuntime().runtime),
+      ChromeRuntimeStreamTarget.Background,
+      ChromeRuntimeStreamTarget.Offscreen,
+    );
+
+    expect(multiplexer).toBeInstanceOf(StreamMultiplexer);
+  });
+
+  it('can create and drain channels', async () => {
+    const { runtime, dispatchRuntimeMessage } = makeRuntime();
+    const multiplexer = new ChromeRuntimeMultiplexer(
+      asChromeRuntime(runtime),
+      ChromeRuntimeStreamTarget.Background,
+      ChromeRuntimeStreamTarget.Offscreen,
+    );
+    const handleRead = vi.fn();
+    multiplexer.addChannel<number, number>(
+      '1',
+      (value: unknown): value is number => typeof value === 'number',
+      handleRead,
+    );
+
+    const drainP = multiplexer.drainAll();
+    dispatchRuntimeMessage(makeAck());
+    dispatchRuntimeMessage({ channel: '1', payload: 42 });
+    dispatchRuntimeMessage(makeStreamDoneSignal());
+
+    await drainP;
+    expect(handleRead).toHaveBeenCalledWith(42);
   });
 });

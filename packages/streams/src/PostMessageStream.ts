@@ -8,13 +8,17 @@
 
 import type { Json } from '@metamask/utils';
 
-import { BaseDuplexStream } from './BaseDuplexStream.js';
+import {
+  BaseDuplexStream,
+  makeDuplexStreamInputValidator,
+} from './BaseDuplexStream.js';
 import type {
   BaseReaderArgs,
   BaseWriterArgs,
   ValidateInput,
 } from './BaseStream.js';
 import { BaseReader, BaseWriter } from './BaseStream.js';
+import { isMultiplexEnvelope, StreamMultiplexer } from './StreamMultiplexer.js';
 import type { Dispatchable, OnMessage, PostMessage } from './utils.js';
 
 type SetListener = (onMessage: OnMessage) => void;
@@ -51,7 +55,7 @@ export class PostMessageReader<Read extends Json> extends BaseReader<Read> {
         return;
       }
 
-      receiveInput(messageEvent.data);
+      receiveInput(messageEvent.data).catch(async (error) => this.throw(error));
     };
     setListener(onMessage);
 
@@ -97,9 +101,7 @@ export class PostMessageDuplexStream<
   Write,
   PostMessageWriter<Write>
 > {
-  // Unavoidable exception to our preference for #-private names.
-  // eslint-disable-next-line no-restricted-syntax
-  private constructor(
+  constructor(
     postMessageFn: PostMessage,
     setListener: SetListener,
     removeListener: RemoveListener,
@@ -108,7 +110,7 @@ export class PostMessageDuplexStream<
     let writer: PostMessageWriter<Write>; // eslint-disable-line prefer-const
     const reader = new PostMessageReader<Read>(setListener, removeListener, {
       name: 'PostMessageDuplexStream',
-      validateInput,
+      validateInput: makeDuplexStreamInputValidator(validateInput),
       onEnd: async () => {
         await writer.return();
       },
@@ -139,3 +141,24 @@ export class PostMessageDuplexStream<
   }
 }
 harden(PostMessageDuplexStream);
+
+export class PostMessageMultiplexer extends StreamMultiplexer {
+  constructor(
+    postMessageFn: PostMessage,
+    setListener: SetListener,
+    removeListener: RemoveListener,
+    name?: string,
+  ) {
+    super(
+      new PostMessageDuplexStream(
+        postMessageFn,
+        setListener,
+        removeListener,
+        isMultiplexEnvelope,
+      ),
+      name,
+    );
+    harden(this);
+  }
+}
+harden(PostMessageMultiplexer);

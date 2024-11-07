@@ -1,6 +1,11 @@
 import type { Json } from '@metamask/utils';
 
-import { BaseDuplexStream, makeAck } from '../src/BaseDuplexStream.js';
+import {
+  BaseDuplexStream,
+  makeAck,
+  makeDuplexStreamInputValidator,
+} from '../src/BaseDuplexStream.js';
+import type { DuplexStream } from '../src/BaseDuplexStream.js';
 import type {
   Dispatch,
   ReceiveInput,
@@ -9,6 +14,10 @@ import type {
   BaseWriterArgs,
 } from '../src/BaseStream.js';
 import { BaseReader, BaseWriter } from '../src/BaseStream.js';
+import type { MultiplexEnvelope } from '../src/StreamMultiplexer.js';
+import { StreamMultiplexer } from '../src/StreamMultiplexer.js';
+
+export type { MultiplexEnvelope } from '../src/StreamMultiplexer.js';
 
 export class TestReader<Read extends Json = number> extends BaseReader<Read> {
   readonly #receiveInput: ReceiveInput;
@@ -73,7 +82,7 @@ export class TestDuplexStream<
     const reader = new TestReader<Read>({
       name: 'TestDuplexStream',
       onEnd: readerOnEnd,
-      validateInput,
+      validateInput: makeDuplexStreamInputValidator(validateInput),
     });
     super(
       reader,
@@ -98,7 +107,7 @@ export class TestDuplexStream<
    */
   async completeSynchronization(): Promise<void> {
     const syncP = super.synchronize().catch(() => undefined);
-    this.receiveInput(makeAck());
+    await this.receiveInput(makeAck());
     return syncP;
   }
 
@@ -116,5 +125,29 @@ export class TestDuplexStream<
     const stream = new TestDuplexStream<Read, Write>(onDispatch, opts);
     await stream.completeSynchronization();
     return stream;
+  }
+}
+
+export class TestMultiplexer extends StreamMultiplexer {
+  constructor(
+    duplex: DuplexStream<MultiplexEnvelope> = new TestDuplexStream(
+      () => undefined,
+    ),
+  ) {
+    super(duplex);
+  }
+
+  static async make(
+    duplex?: TestDuplexStream<MultiplexEnvelope, MultiplexEnvelope>,
+  ): Promise<
+    [TestMultiplexer, TestDuplexStream<MultiplexEnvelope, MultiplexEnvelope>]
+  > {
+    // We can't use the async factory for a parameter default
+    // eslint-disable-next-line no-param-reassign
+    duplex ??= await TestDuplexStream.make<
+      MultiplexEnvelope,
+      MultiplexEnvelope
+    >(() => undefined);
+    return [new TestMultiplexer(duplex), duplex] as const;
   }
 }

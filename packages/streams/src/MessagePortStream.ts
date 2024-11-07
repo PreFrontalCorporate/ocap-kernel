@@ -21,13 +21,17 @@
 
 import type { Json } from '@metamask/utils';
 
-import { BaseDuplexStream } from './BaseDuplexStream.js';
+import {
+  BaseDuplexStream,
+  makeDuplexStreamInputValidator,
+} from './BaseDuplexStream.js';
 import type {
   BaseReaderArgs,
   BaseWriterArgs,
   ValidateInput,
 } from './BaseStream.js';
 import { BaseReader, BaseWriter } from './BaseStream.js';
+import { isMultiplexEnvelope, StreamMultiplexer } from './StreamMultiplexer.js';
 import type { Dispatchable, OnMessage } from './utils.js';
 
 /**
@@ -65,7 +69,7 @@ export class MessagePortReader<Read extends Json> extends BaseReader<Read> {
         return;
       }
 
-      receiveInput(messageEvent.data);
+      receiveInput(messageEvent.data).catch(async (error) => this.throw(error));
     };
     port.addEventListener('message', onMessage);
     port.start();
@@ -110,13 +114,11 @@ export class MessagePortDuplexStream<
   Write,
   MessagePortWriter<Write>
 > {
-  // Unavoidable exception to our preference for #-private names.
-  // eslint-disable-next-line no-restricted-syntax
-  private constructor(port: MessagePort, validateInput?: ValidateInput<Read>) {
+  constructor(port: MessagePort, validateInput?: ValidateInput<Read>) {
     let writer: MessagePortWriter<Write>; // eslint-disable-line prefer-const
     const reader = new MessagePortReader<Read>(port, {
       name: 'MessagePortDuplexStream',
-      validateInput,
+      validateInput: makeDuplexStreamInputValidator(validateInput),
       onEnd: async () => {
         await writer.return();
       },
@@ -143,3 +145,11 @@ export class MessagePortDuplexStream<
   }
 }
 harden(MessagePortDuplexStream);
+
+export class MessagePortMultiplexer extends StreamMultiplexer {
+  constructor(port: MessagePort, name?: string) {
+    super(new MessagePortDuplexStream(port, isMultiplexEnvelope), name);
+    harden(this);
+  }
+}
+harden(MessagePortMultiplexer);
