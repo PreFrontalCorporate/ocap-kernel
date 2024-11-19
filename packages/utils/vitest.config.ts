@@ -1,17 +1,17 @@
-// eslint-disable-next-line spaced-comment
-/// <reference types="vitest" />
+import { defineProject, mergeConfig } from 'vitest/config';
 
-import { defineConfig, mergeConfig } from 'vite';
+import defaultConfig from '../../vitest.config.js';
 
-import { getDefaultConfig } from '../../vitest.config.packages.js';
-
-const defaultConfig = getDefaultConfig();
-
-export default mergeConfig(
+const config = mergeConfig(
   defaultConfig,
-  defineConfig({
+  defineProject({
     test: {
+      name: 'utils',
       setupFiles: '../test-utils/src/env/mock-endo.ts',
     },
   }),
 );
+
+config.test.coverage.thresholds = true;
+
+export default config;
