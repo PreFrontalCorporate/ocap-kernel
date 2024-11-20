@@ -35,7 +35,7 @@ import type { Dispatchable } from './utils.js';
 export enum ChromeRuntimeStreamTarget {
   Background = 'background',
   Offscreen = 'offscreen',
-  Devtools = 'devtools',
+  Popup = 'popup',
 }
 
 export type MessageEnvelope<Payload> = {

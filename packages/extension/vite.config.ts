@@ -41,6 +41,7 @@ export default defineConfig(({ mode }) => ({
         'kernel-worker': path.resolve(sourceDir, 'kernel/kernel-worker.ts'),
         offscreen: path.resolve(sourceDir, 'offscreen.html'),
         iframe: path.resolve(sourceDir, 'iframe.html'),
+        popup: path.resolve(sourceDir, 'popup.html'),
       },
       output: {
         entryFileNames: '[name].js',
