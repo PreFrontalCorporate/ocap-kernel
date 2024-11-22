@@ -91,7 +91,7 @@ harden(makeStreamBuffer);
  * A function that is called when a stream ends. Useful for cleanup, such as closing a
  * message port.
  */
-export type OnEnd = () => void | Promise<void>;
+export type OnEnd = (error?: Error) => void | Promise<void>;
 
 /**
  * A function that validates input to a readable stream.
@@ -209,7 +209,7 @@ export class BaseReader<Read> implements Reader<Read> {
    */
   async #end(error?: Error): Promise<void> {
     this.#buffer.end(error);
-    const onEndP = this.#onEnd?.();
+    const onEndP = this.#onEnd?.(error);
     this.#onEnd = undefined;
     await onEndP;
   }
@@ -247,6 +247,16 @@ export class BaseReader<Read> implements Reader<Read> {
   async throw(error: Error): Promise<IteratorResult<Read, undefined>> {
     await this.#end(error);
     return makeDoneResult();
+  }
+
+  /**
+   * Closes the stream. Syntactic sugar for `return()` or `throw(error)`. Idempotent.
+   *
+   * @param error - The error to close the stream with.
+   * @returns The final result for this stream.
+   */
+  async end(error?: Error): Promise<IteratorResult<Read, undefined>> {
+    return error ? this.throw(error) : this.return();
   }
 }
 harden(BaseReader);
@@ -333,9 +343,9 @@ export class BaseWriter<Write> implements Writer<Write> {
     }
   }
 
-  async #end(): Promise<void> {
+  async #end(error?: Error): Promise<void> {
     this.#isDone = true;
-    const onEndP = this.#onEnd?.();
+    const onEndP = this.#onEnd?.(error);
     this.#onEnd = undefined;
     await onEndP;
   }
@@ -384,6 +394,16 @@ export class BaseWriter<Write> implements Writer<Write> {
   }
 
   /**
+   * Closes the stream. Syntactic sugar for `return()` or `throw(error)`. Idempotent.
+   *
+   * @param error - The error to close the stream with.
+   * @returns The final result for this stream.
+   */
+  async end(error?: Error): Promise<IteratorResult<undefined, undefined>> {
+    return error ? this.throw(error) : this.return();
+  }
+
+  /**
    * Dispatches the error and calls `#end()`. Mutually recursive with `dispatch()`.
    * For this reason, includes a flag indicating past failure, so that `dispatch()`
    * can avoid infinite recursion. See `dispatch()` for more details.
@@ -398,7 +418,7 @@ export class BaseWriter<Write> implements Writer<Write> {
   ): Promise<IteratorResult<undefined, undefined>> {
     const result = this.#dispatch(error, hasFailed);
     if (!this.#isDone) {
-      await this.#end();
+      await this.#end(error);
     }
     return result;
   }

@@ -3,7 +3,11 @@ import { stringify } from '@ocap/utils';
 import { describe, expect, it, vi } from 'vitest';
 
 import { BaseDuplexStream, makeAck, makeSyn } from './BaseDuplexStream.js';
-import { makePendingResult, makeStreamDoneSignal } from './utils.js';
+import {
+  makeDoneResult,
+  makePendingResult,
+  makeStreamDoneSignal,
+} from './utils.js';
 import { TestDuplexStream } from '../test/stream-mocks.js';
 
 describe('BaseDuplexStream', () => {
@@ -219,6 +223,23 @@ describe('BaseDuplexStream', () => {
     expect(onDispatch).toHaveBeenCalledWith(message);
   });
 
+  it('pipes to another duplex stream', async () => {
+    const duplexStream = await TestDuplexStream.make(() => undefined);
+    const onDispatch = vi.fn();
+    const sink = await TestDuplexStream.make(onDispatch);
+
+    const pipeP = duplexStream.pipe(sink);
+    await duplexStream.receiveInput(42);
+    await duplexStream.receiveInput(43);
+    await duplexStream.return();
+    await pipeP;
+
+    expect(onDispatch).toHaveBeenCalledWith(42);
+    expect(onDispatch).toHaveBeenLastCalledWith(43);
+
+    await sink.return();
+  });
+
   it('return calls ends both the reader and writer', async () => {
     const readerOnEnd = vi.fn();
     const writerOnEnd = vi.fn();
@@ -266,5 +287,23 @@ describe('BaseDuplexStream', () => {
 
     await expect(duplexStream.write(42)).rejects.toThrow('foo');
     expect(writerOnEnd).toHaveBeenCalledOnce();
+  });
+
+  describe('end', () => {
+    it('calls return() if no error is provided', async () => {
+      const duplexStream = await TestDuplexStream.make(() => undefined);
+      const nextP = duplexStream.next();
+      expect(await duplexStream.end()).toStrictEqual(makeDoneResult());
+      expect(await nextP).toStrictEqual(makeDoneResult());
+    });
+
+    it('calls throw() if an error is provided', async () => {
+      const duplexStream = await TestDuplexStream.make(() => undefined);
+      const nextP = duplexStream.next();
+      expect(await duplexStream.end(new Error('foo'))).toStrictEqual(
+        makeDoneResult(),
+      );
+      await expect(nextP).rejects.toThrow('foo');
+    });
   });
 });

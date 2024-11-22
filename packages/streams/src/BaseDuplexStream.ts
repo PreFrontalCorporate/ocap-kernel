@@ -1,7 +1,8 @@
 import type { PromiseKit } from '@endo/promise-kit';
 import { makePromiseKit } from '@endo/promise-kit';
 import type { Reader } from '@endo/stream';
-import { isObject } from '@metamask/utils';
+import { is, literal, object } from '@metamask/superstruct';
+import type { Infer } from '@metamask/superstruct';
 import { stringify } from '@ocap/utils';
 
 import type { BaseReader, BaseWriter, ValidateInput } from './BaseStream.js';
@@ -12,31 +13,35 @@ export enum DuplexStreamSentinel {
   Ack = '@@Ack',
 }
 
-type DuplexStreamSyn = {
-  [DuplexStreamSentinel.Syn]: true;
-};
+const SynStruct = object({
+  [DuplexStreamSentinel.Syn]: literal(true),
+});
 
-const isSyn = (value: unknown): value is DuplexStreamSyn =>
-  isObject(value) && value[DuplexStreamSentinel.Syn] === true;
+type DuplexStreamSyn = Infer<typeof SynStruct>;
+
+export const isSyn = (value: unknown): value is DuplexStreamSyn =>
+  is(value, SynStruct);
 
 export const makeSyn = (): DuplexStreamSyn => ({
   [DuplexStreamSentinel.Syn]: true,
 });
 
-type DuplexStreamAck = {
-  [DuplexStreamSentinel.Ack]: true;
-};
+const AckStruct = object({
+  [DuplexStreamSentinel.Ack]: literal(true),
+});
+
+type DuplexStreamAck = Infer<typeof AckStruct>;
+
+export const isAck = (value: unknown): value is DuplexStreamAck =>
+  is(value, AckStruct);
 
 export const makeAck = (): DuplexStreamAck => ({
   [DuplexStreamSentinel.Ack]: true,
 });
 
-const isAck = (value: unknown): value is DuplexStreamAck =>
-  isObject(value) && value[DuplexStreamSentinel.Ack] === true;
+type DuplexStreamSignal = DuplexStreamSyn | DuplexStreamAck;
 
-type StreamSignal = DuplexStreamSyn | DuplexStreamAck;
-
-const isDuplexStreamSignal = (value: unknown): value is StreamSignal =>
+const isDuplexStreamSignal = (value: unknown): value is DuplexStreamSignal =>
   isSyn(value) || isAck(value);
 
 /**
@@ -44,7 +49,7 @@ const isDuplexStreamSignal = (value: unknown): value is StreamSignal =>
  * duplex stream implementations.
  *
  * Validators passed in by consumers must be augmented such that errors aren't
- * thrown for {@link StreamSignal} values.
+ * thrown for {@link DuplexStreamSignal} values.
  *
  * @param validateInput - The validator for the stream's input type.
  * @returns A validator for the stream's input type, or `undefined` if no
@@ -61,7 +66,12 @@ enum SynchronizationStatus {
   Idle = 0,
   Pending = 1,
   Complete = 2,
+  Failed = 3,
 }
+
+const isEnded = (status: SynchronizationStatus): boolean =>
+  status === SynchronizationStatus.Complete ||
+  status === SynchronizationStatus.Failed;
 
 /**
  * The base of a duplex stream. Essentially a {@link BaseReader} with a `write()` method.
@@ -117,6 +127,7 @@ export abstract class BaseDuplexStream<
     // reject before reads or writes occur, in which case there are no handlers.
     this.#syncKit.promise.catch(() => undefined);
 
+    // Next and write only work if synchronization completes.
     this.next = async () =>
       this.#synchronizationStatus === SynchronizationStatus.Complete
         ? reader.next()
@@ -143,7 +154,6 @@ export abstract class BaseDuplexStream<
     if (this.#synchronizationStatus !== SynchronizationStatus.Idle) {
       return this.#syncKit.promise;
     }
-    this.#synchronizationStatus = SynchronizationStatus.Pending;
 
     try {
       await this.#performSynchronization();
@@ -166,30 +176,28 @@ export abstract class BaseDuplexStream<
    * near future.
    */
   async #performSynchronization(): Promise<void> {
-    const { resolve, reject } = this.#syncKit;
-
+    this.#synchronizationStatus = SynchronizationStatus.Pending;
     let receivedSyn = false;
 
     // @ts-expect-error See docstring.
     await this.#writer.next(makeSyn());
 
-    while (this.#synchronizationStatus !== SynchronizationStatus.Complete) {
+    while (this.#synchronizationStatus === SynchronizationStatus.Pending) {
       const result = await this.#reader.next();
-      if (isAck(result.value) || result.done) {
-        this.#synchronizationStatus = SynchronizationStatus.Complete;
-        resolve();
+      if (isAck(result.value)) {
+        this.#completeSynchronization();
       } else if (isSyn(result.value)) {
         if (receivedSyn) {
-          reject(
+          this.#failSynchronization(
             new Error('Received duplicate SYN message during synchronization'),
           );
-          break;
+        } else {
+          receivedSyn = true;
+          // @ts-expect-error See docstring.
+          await this.#writer.next(makeAck());
         }
-        receivedSyn = true;
-        // @ts-expect-error See docstring.
-        await this.#writer.next(makeAck());
       } else {
-        reject(
+        this.#failSynchronization(
           new Error(
             `Received unexpected message during synchronization: ${stringify(result)}`,
           ),
@@ -197,6 +205,24 @@ export abstract class BaseDuplexStream<
         break;
       }
     }
+  }
+
+  #completeSynchronization(): void {
+    if (isEnded(this.#synchronizationStatus)) {
+      return;
+    }
+
+    this.#synchronizationStatus = SynchronizationStatus.Complete;
+    this.#syncKit.resolve();
+  }
+
+  #failSynchronization(error: Error): void {
+    if (isEnded(this.#synchronizationStatus)) {
+      return;
+    }
+
+    this.#synchronizationStatus = SynchronizationStatus.Failed;
+    this.#syncKit.reject(error);
   }
 
   [Symbol.asyncIterator](): typeof this {
@@ -215,25 +241,48 @@ export abstract class BaseDuplexStream<
   }
 
   /**
+   * Pipes the stream to another duplex stream.
+   *
+   * @param sink - The duplex stream to pipe to.
+   */
+  async pipe<Read2>(sink: DuplexStream<Read2, Read>): Promise<void> {
+    await this.drain(async (value) => {
+      await sink.write(value);
+    });
+  }
+
+  /**
    * Closes the stream. Idempotent.
    *
    * @returns The final result for this stream.
    */
   async return(): Promise<IteratorResult<Read, undefined>> {
+    this.#completeSynchronization();
     await Promise.all([this.#writer.return(), this.#reader.return()]);
     return makeDoneResult();
   }
 
   /**
-   * Writes the error to the stream, and closes the stream. Idempotent.
+   * Closes the stream with an error. Idempotent.
    *
-   * @param error - The error to write.
+   * @param error - The error to close the stream with.
    * @returns The final result for this stream.
    */
   async throw(error: Error): Promise<IteratorResult<Read, undefined>> {
+    this.#failSynchronization(error);
     // eslint-disable-next-line promise/no-promise-in-callback
-    await Promise.all([this.#writer.throw(error), this.#reader.return()]);
+    await Promise.all([this.#writer.throw(error), this.#reader.throw(error)]);
     return makeDoneResult();
+  }
+
+  /**
+   * Closes the stream. Syntactic sugar for `throw(error)` or `return()`. Idempotent.
+   *
+   * @param error - The error to close the stream with.
+   * @returns The final result for this stream.
+   */
+  async end(error?: Error): Promise<IteratorResult<Read, undefined>> {
+    return error ? this.throw(error) : this.return();
   }
 }
 harden(BaseDuplexStream);
@@ -243,7 +292,7 @@ harden(BaseDuplexStream);
  */
 export type DuplexStream<Read, Write = Read> = Pick<
   BaseDuplexStream<Read, BaseReader<Read>, Write, BaseWriter<Write>>,
-  'next' | 'write' | 'drain' | 'return' | 'throw'
+  'next' | 'write' | 'drain' | 'pipe' | 'return' | 'throw' | 'end'
 > & {
   [Symbol.asyncIterator]: () => DuplexStream<Read, Write>;
 };

@@ -7,6 +7,7 @@ import {
   MessagePortReader,
   MessagePortWriter,
 } from './MessagePortStream.js';
+import { makeMultiplexEnvelope } from '../../test/stream-mocks.js';
 import { makeAck } from '../BaseDuplexStream.js';
 import type { ValidateInput } from '../BaseStream.js';
 import {
@@ -226,19 +227,19 @@ describe('MessagePortMultiplexer', () => {
   it('can create and drain channels', async () => {
     const { port1, port2 } = new MessageChannel();
     const multiplexer = new MessagePortMultiplexer(port1);
-    const handleRead = vi.fn();
-    multiplexer.addChannel<number, number>(
+    const ch1Handler = vi.fn();
+    const ch1 = multiplexer.createChannel<number, number>(
       '1',
-      handleRead,
       (value: unknown): value is number => typeof value === 'number',
     );
 
-    const drainP = multiplexer.drainAll();
+    const drainP = Promise.all([multiplexer.start(), ch1.drain(ch1Handler)]);
     port2.postMessage(makeAck());
-    port2.postMessage({ channel: '1', payload: 42 });
+    port2.postMessage(makeMultiplexEnvelope('1', makeAck()));
+    port2.postMessage(makeMultiplexEnvelope('1', 42));
     port2.postMessage(makeStreamDoneSignal());
 
     await drainP;
-    expect(handleRead).toHaveBeenCalledWith(42);
+    expect(ch1Handler).toHaveBeenCalledWith(42);
   });
 });
