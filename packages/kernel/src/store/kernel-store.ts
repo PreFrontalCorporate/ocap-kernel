@@ -77,6 +77,7 @@ export type KVStore = {
   getRequired(key: string): string;
   set(key: string, value: string): void;
   delete(key: string): void;
+  truncate(): void;
 };
 
 /**
@@ -95,6 +96,19 @@ export type KVStore = {
  */
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 export function makeKernelStore(kv: KVStore) {
+  // Initialize core state
+
+  /** The kernel's run queue. */
+  let runQueue = createStoredMessageQueue('run', true);
+  /** Counter for allocating VatIDs */
+  let nextVatId = provideCachedStoredValue('nextVatId', '1');
+  /** Counter for allocating RemoteIDs */
+  let nextRemoteId = provideCachedStoredValue('nextRemoteId', '1');
+  /** Counter for allocating kernel object IDs */
+  let nextObjectId = provideCachedStoredValue('nextObjectId', '1');
+  /** Counter for allocating kernel promise IDs */
+  let nextPromiseId = provideCachedStoredValue('nextPromiseId', '1');
+
   /**
    * Provide a stored value object for which we keep an in-memory cache. We only
    * touch persistent storage if the value hasn't ever been read of if it is
@@ -243,9 +257,6 @@ export function makeKernelStore(kv: KVStore) {
     };
   }
 
-  /** The kernel's run queue. */
-  const runQueue = createStoredMessageQueue('run', true);
-
   /**
    * Append a message to the kernel's run queue.
    *
@@ -265,8 +276,6 @@ export function makeKernelStore(kv: KVStore) {
     return runQueue.dequeue();
   }
 
-  /** Counter for allocating VatIDs */
-  const nextVatId = provideCachedStoredValue('nextVatId', '1');
   /**
    * Obtain an ID for a new vat.
    *
@@ -276,8 +285,6 @@ export function makeKernelStore(kv: KVStore) {
     return `v${incCounter(nextVatId)}`;
   }
 
-  /** Counter for allocating RemoteIDs */
-  const nextRemoteId = provideCachedStoredValue('nextRemoteId', '1');
   /**
    * Obtain an ID for a new remote connection.
    *
@@ -287,8 +294,6 @@ export function makeKernelStore(kv: KVStore) {
     return `r${incCounter(nextRemoteId)}`;
   }
 
-  /** Counter for allocating kernel object IDs */
-  const nextObjectId = provideCachedStoredValue('nextObjectId', '1');
   /**
    * Obtain a KRef for the next unallocated kernel object.
    *
@@ -383,8 +388,6 @@ export function makeKernelStore(kv: KVStore) {
     kv.delete(refCountKey(koId));
   }
 
-  /** Counter for allocating kernel promise IDs */
-  const nextPromiseId = provideCachedStoredValue('nextPromiseId', '1');
   /**
    * Obtain a KRef for the next unallocated kernel promise.
    *
@@ -573,6 +576,18 @@ export function makeKernelStore(kv: KVStore) {
     }
   }
 
+  /**
+   * Truncate the kernel's persistent state and reset all counters.
+   */
+  function reset(): void {
+    kv.truncate();
+    runQueue = createStoredMessageQueue('run', true);
+    nextVatId = provideCachedStoredValue('nextVatId', '1');
+    nextRemoteId = provideCachedStoredValue('nextRemoteId', '1');
+    nextObjectId = provideCachedStoredValue('nextObjectId', '1');
+    nextPromiseId = provideCachedStoredValue('nextPromiseId', '1');
+  }
+
   return harden({
     enqueueRun,
     dequeueRun,
@@ -594,6 +609,7 @@ export function makeKernelStore(kv: KVStore) {
     addClistEntry,
     forgetEref,
     forgetKref,
+    reset,
     kv,
   });
 }
