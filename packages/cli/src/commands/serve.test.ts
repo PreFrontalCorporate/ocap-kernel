@@ -11,6 +11,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { getServer } from './serve.js';
 import { getTestBundles } from '../../test/bundles.js';
 import { defaultConfig } from '../config.js';
+import { withTimeout } from '../utils.js';
 
 const isBundleSourceResult = (
   value: unknown,
@@ -61,8 +62,9 @@ describe('serve', async () => {
         },
         dir: root,
       });
+      const url = `http://localhost:${port}`;
       const requestBundle = async (path: string): Promise<unknown> => {
-        const resp = await nodeFetch(`http://localhost:${port}/${path}`);
+        const resp = await nodeFetch(`${url}/${path}`);
         if (resp.ok) {
           return resp.json();
         }
@@ -107,10 +109,7 @@ describe('serve', async () => {
 
         expect(receivedBundleHash).toStrictEqual(expectedBundleHash);
       } finally {
-        await Promise.race([
-          new Promise((_resolve) => setTimeout(_resolve, 400)),
-          close(),
-        ]);
+        await withTimeout(close(), 400).catch(console.error);
       }
     });
 

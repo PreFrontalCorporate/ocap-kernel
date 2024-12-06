@@ -1,9 +1,11 @@
+import path from 'node:path';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 
 import { createBundle } from './commands/bundle.js';
 import { getServer } from './commands/serve.js';
 import { defaultConfig } from './config.js';
+import type { Config } from './config.js';
 
 await yargs(hideBin(process.argv))
   .usage('$0 <command> [options]')
@@ -26,33 +28,35 @@ await yargs(hideBin(process.argv))
     },
   )
   .command(
-    'serve <dir> [-p port]',
+    'serve <dir> [options]',
     'Serve bundled user code by filename',
     (_yargs) =>
       _yargs
+        .option('dir', {
+          type: 'string',
+          dir: true,
+          required: true,
+          describe: 'A directory containing bundle files to serve',
+        })
         .option('port', {
           alias: 'p',
           type: 'number',
           default: defaultConfig.server.port,
-        })
-        .option('dir', {
-          alias: 'd',
-          type: 'string',
-          dir: true,
-          required: true,
-          describe: 'A directory of files to bundle',
         }),
     async (args) => {
-      console.info(`serving ${args.dir} on localhost:${args.port}`);
-      const server = getServer({
+      const appName = 'bundle server';
+      const url = `http://localhost:${args.port}`;
+      const resolvedDir = path.resolve(args.dir);
+      const config: Config = {
         server: {
           port: args.port,
         },
-        dir: args.dir,
-      });
+        dir: resolvedDir,
+      };
+      console.info(`starting ${appName} in ${resolvedDir} on ${url}`);
+      const server = getServer(config);
       await server.listen();
     },
   )
-  .help('h')
-  .alias('h', 'help')
+  .help('help')
   .parse();
