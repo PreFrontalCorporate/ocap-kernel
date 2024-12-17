@@ -4,6 +4,8 @@ import metamaskConfig, { createConfig } from '@metamask/eslint-config';
 import metamaskNodeConfig from '@metamask/eslint-config-nodejs';
 import metamaskTypescriptConfig from '@metamask/eslint-config-typescript';
 import metamaskVitestConfig from '@metamask/eslint-config-vitest';
+import react from 'eslint-plugin-react';
+import reactHooks from 'eslint-plugin-react-hooks';
 import globals from 'globals';
 
 const config = createConfig([
@@ -39,7 +41,7 @@ const config = createConfig([
   },
 
   {
-    files: ['**/*.ts', '**/*.mts', '**/*.cts'],
+    files: ['**/*.ts', '**/*.tsx', '**/*.mts', '**/*.cts'],
     extends: [metamaskTypescriptConfig],
     rules: {
       '@typescript-eslint/explicit-function-return-type': [
@@ -61,7 +63,33 @@ const config = createConfig([
   },
 
   {
-    files: ['**/*.test.ts'],
+    files: ['*.tsx', '**/ui/**/*.ts'],
+    // @ts-expect-error - The createConfig types are wrong
+    plugins: { react, 'react-hooks': reactHooks },
+    rules: {
+      ...react.configs.flat?.['jsx-runtime']?.rules,
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'warn',
+    },
+    languageOptions: {
+      parserOptions: {
+        ecmaFeatures: {
+          jsx: true,
+        },
+        jsxPragma: null,
+        sourceType: 'module',
+        project: ['./packages/*/tsconfig.lint.json'],
+      },
+    },
+    settings: {
+      react: {
+        version: 'detect',
+      },
+    },
+  },
+
+  {
+    files: ['**/*.test.ts', '**/*.test.tsx'],
     extends: [metamaskVitestConfig],
     rules: {
       // This causes false positives in tests especially.
