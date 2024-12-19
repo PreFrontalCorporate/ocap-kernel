@@ -1,5 +1,6 @@
 import { KernelCommandMethod } from '@ocap/kernel';
 import type { KernelCommand } from '@ocap/kernel';
+import { stringify } from '@ocap/utils';
 import { useEffect, useRef } from 'react';
 
 import styles from '../App.module.css';
@@ -17,8 +18,6 @@ const commonMessages: Record<string, KernelCommand> = {
 
 const getLogTypeIcon = (type: OutputType): string => {
   switch (type) {
-    case 'sent':
-      return '→';
     case 'received':
       return '←';
     case 'error':
@@ -26,7 +25,7 @@ const getLogTypeIcon = (type: OutputType): string => {
     case 'success':
       return '✓';
     default:
-      return '';
+      return '→';
   }
 };
 
@@ -34,28 +33,40 @@ const getLogTypeIcon = (type: OutputType): string => {
  * @returns A panel for sending messages to the kernel.
  */
 export const MessagePanel: React.FC = () => {
-  const { messageContent, setMessageContent, panelLogs } = usePanelContext();
+  const { messageContent, setMessageContent, panelLogs, clearLogs } =
+    usePanelContext();
   const { sendKernelCommand } = useKernelActions();
-  const messageOutputRef = useRef<HTMLDivElement>(null);
+  const messageScrollRef = useRef<HTMLDivElement>(null);
 
   // Scroll to the bottom of the message output when the panel logs change
   useEffect(() => {
-    if (messageOutputRef.current) {
-      messageOutputRef.current.scrollTop =
-        messageOutputRef.current.scrollHeight;
+    if (messageScrollRef.current) {
+      messageScrollRef.current.scrollTop =
+        messageScrollRef.current.scrollHeight;
     }
   }, [panelLogs]);
 
   return (
     <div className={styles.outputSection}>
-      <h4 className={styles.outputHeader}>Message History</h4>
-      <div className={styles.messageOutput} ref={messageOutputRef}>
-        {panelLogs.map((log, index) => (
-          <div key={index} className={styles[log.type]}>
-            <span className={styles.logType}>{getLogTypeIcon(log.type)}</span>
-            <span className={styles.logMessage}>{log.message}</span>
-          </div>
-        ))}
+      <div className={styles.outputHeader}>
+        <h4>Message History</h4>
+        <button className={styles.smallButton} onClick={clearLogs}>
+          Clear
+        </button>
+      </div>
+      <div className={styles.messageOutput}>
+        <div
+          className={styles.messageScrollWrapper}
+          ref={messageScrollRef}
+          role="log"
+        >
+          {panelLogs.map((log, index) => (
+            <div key={index} className={styles[log.type]}>
+              <span className={styles.logType}>{getLogTypeIcon(log.type)}</span>
+              <span className={styles.logMessage}>{log.message}</span>
+            </div>
+          ))}
+        </div>
       </div>
       <div className={styles.messageInputSection}>
         <div className={styles.messageTemplates}>
@@ -63,9 +74,7 @@ export const MessagePanel: React.FC = () => {
             <button
               key={name}
               className={styles.textButton}
-              onClick={() =>
-                setMessageContent(JSON.stringify(template, null, 2))
-              }
+              onClick={() => setMessageContent(stringify(template, 0))}
             >
               {name}
             </button>
