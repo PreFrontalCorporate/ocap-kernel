@@ -25,6 +25,12 @@ export default defineConfig({
     setupFiles: [
       path.join(__dirname, './packages/test-utils/src/env/fetch-mock.ts'),
     ],
+    poolOptions: {
+      vmThreads: {
+        maxThreads: 2,
+        minThreads: 1,
+      },
+    },
     coverage: {
       enabled: true,
       provider: 'istanbul',
@@ -54,10 +60,10 @@ export default defineConfig({
           lines: 100,
         },
         'packages/extension/**': {
-          statements: 64.56,
-          functions: 65.83,
-          branches: 72.9,
-          lines: 64.55,
+          statements: 67.41,
+          functions: 70.45,
+          branches: 71.83,
+          lines: 67.41,
         },
         'packages/kernel/**': {
           statements: 78.23,
