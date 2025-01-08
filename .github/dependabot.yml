@@ -6,13 +6,9 @@ updates:
   - package-ecosystem: 'npm'
     directory: '/'
     schedule:
-      interval: 'daily'
-      time: '06:00'
-    allow:
-      - dependency-name: '@endo/*'
-      - dependency-name: '@lavamoat/*'
-      - dependency-name: '@metamask/*'
-      - dependency-name: '@ts-bridge/*'
+      interval: 'weekly'
+      day: 'monday'
+      time: '06:00' # UTC
     target-branch: 'main'
     versioning-strategy: 'increase-if-necessary'
     open-pull-requests-limit: 10
