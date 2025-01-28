@@ -1,11 +1,13 @@
-import { hasProperty, isObject } from '@metamask/utils';
 import type { KVStore } from '@ocap/kernel';
 import { makeLogger } from '@ocap/utils';
-// eslint-disable-next-line @typescript-eslint/naming-convention
-import Sqlite from 'better-sqlite3';
+import type { Database } from 'better-sqlite3';
 import { mkdir } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
+
+// We require require because the ESM import does not work properly.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const Sqlite = require('better-sqlite3');
 
 const dbRoot = join(tmpdir(), './db');
 
@@ -17,7 +19,7 @@ const dbRoot = join(tmpdir(), './db');
  */
 async function initDB(
   logger?: ReturnType<typeof makeLogger>,
-): Promise<Sqlite.Database> {
+): Promise<Database> {
   const dbPath = join(dbRoot, 'store.db');
   console.log('dbPath:', dbPath);
   await mkdir(dbRoot, { recursive: true });
@@ -53,6 +55,7 @@ export async function makeSQLKVStore(
     FROM kv
     WHERE key = ?
   `);
+  sqlKVGet.pluck(true);
 
   /**
    * Read a key's value from the database.
@@ -63,16 +66,10 @@ export async function makeSQLKVStore(
    */
   function kvGet(key: string, required: boolean): string {
     const result = sqlKVGet.get(key);
-    if (isObject(result) && hasProperty(result, 'value')) {
-      const value = result.value as string;
-      logger.debug(`kernel get '${key}' as '${value}'`);
-      return value;
-    }
-    if (required) {
+    if (required && !result) {
       throw Error(`no record matching key '${key}'`);
     }
-    // Sometimes, we really lean on TypeScript's unsoundness
-    return undefined as unknown as string;
+    return result as string;
   }
 
   const sqlKVGetNextKey = db.prepare(`
@@ -81,6 +78,7 @@ export async function makeSQLKVStore(
     WHERE key > ?
     LIMIT 1
   `);
+  sqlKVGetNextKey.pluck(true);
 
   /**
    * Get the lexicographically next key in the KV store after a given key.
@@ -111,7 +109,6 @@ export async function makeSQLKVStore(
    * @param value - The value to assign to it.
    */
   function kvSet(key: string, value: string): void {
-    logger.debug(`kernel set '${key}' to '${value}'`);
     sqlKVSet.run(key, value);
   }
 
@@ -126,7 +123,6 @@ export async function makeSQLKVStore(
    * @param key - The key to remove.
    */
   function kvDelete(key: string): void {
-    logger.debug(`kernel delete '${key}'`);
     sqlKVDelete.run(key);
   }
 
@@ -138,7 +134,6 @@ export async function makeSQLKVStore(
    * Delete all keys and values from the database.
    */
   function kvClear(): void {
-    logger.debug(`kernel clear`);
     sqlKVDrop.run();
     sqlKVInit.run();
   }

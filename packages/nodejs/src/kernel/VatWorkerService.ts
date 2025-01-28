@@ -14,11 +14,15 @@ import { Worker as NodeWorker } from 'node:worker_threads';
 
 // Worker file loads from the built dist directory, requires rebuild after change
 // Note: Worker runs in same process and may be subject to spectre-style attacks
-const workerFileURL = new URL('../../dist/vat/vat-worker.mjs', import.meta.url)
-  .pathname;
+const DEFAULT_WORKER_FILE = new URL(
+  '../../dist/vat/vat-worker.mjs',
+  import.meta.url,
+).pathname;
 
 export class NodejsVatWorkerService implements VatWorkerService {
   readonly #logger: Logger;
+
+  readonly #workerFilePath: string;
 
   workers = new Map<
     VatId,
@@ -29,24 +33,29 @@ export class NodejsVatWorkerService implements VatWorkerService {
    * The vat worker service, intended to be constructed in
    * the kernel worker.
    *
-   * @param logger - An optional {@link Logger}. Defaults to a new logger labeled '[vat worker client]'.
+   * @param args - A bag of optional arguments.
+   * @param args.workerFilePath - An optional path to a file defining the worker's routine. Defaults to 'vat-worker.mjs'.
+   * @param args.logger - An optional {@link Logger}. Defaults to a new logger labeled '[vat worker client]'.
    */
-  constructor(logger?: Logger) {
-    this.#logger = logger ?? makeLogger('[vat worker service]');
+  constructor(args: {
+    workerFilePath?: string | undefined;
+    logger?: Logger | undefined;
+  }) {
+    this.#workerFilePath = args.workerFilePath ?? DEFAULT_WORKER_FILE;
+    this.#logger = args.logger ?? makeLogger('[vat worker service]');
   }
 
   async launch(
     vatId: VatId,
   ): Promise<DuplexStream<VatCommandReply, VatCommand>> {
+    this.#logger.debug('launching vat', vatId);
     const { promise, resolve, reject } =
       makePromiseKit<DuplexStream<VatCommandReply, VatCommand>>();
-    this.#logger.debug('launching', vatId);
-    const worker = new NodeWorker(workerFileURL, {
+    const worker = new NodeWorker(this.#workerFilePath, {
       env: {
         NODE_VAT_ID: vatId,
       },
     });
-    this.#logger.debug('launched', vatId);
     worker.once('online', () => {
       const stream = new NodeWorkerDuplexStream<VatCommandReply, VatCommand>(
         worker,
@@ -57,7 +66,7 @@ export class NodejsVatWorkerService implements VatWorkerService {
         .synchronize()
         .then(() => {
           resolve(stream);
-          this.#logger.debug('connected', vatId);
+          this.#logger.debug('connected to kernel');
           return undefined;
         })
         .catch((error) => {

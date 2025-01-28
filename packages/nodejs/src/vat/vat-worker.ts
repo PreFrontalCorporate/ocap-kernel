@@ -1,34 +1,30 @@
 import '@ocap/shims/endoify';
 
-import { isVatCommand, VatSupervisor } from '@ocap/kernel';
-import type { VatCommand, VatCommandReply } from '@ocap/kernel';
-import { NodeWorkerDuplexStream } from '@ocap/streams';
+import type { VatId } from '@ocap/kernel';
+import { VatSupervisor } from '@ocap/kernel';
 import { makeLogger } from '@ocap/utils';
-import { parentPort } from 'node:worker_threads';
 
-import { makeSQLKVStore } from '../kernel/sqlite-kv-store.js';
+import { makeCommandStream } from './streams';
+import { makeSQLKVStore } from '../kernel/sqlite-kv-store';
 
-// eslint-disable-next-line n/no-process-env
-const logger = makeLogger(`[vat-worker (${process.env.NODE_VAT_ID})]`);
+const vatId = process.env.NODE_VAT_ID as VatId;
 
-main().catch(logger.error);
+if (vatId) {
+  const logger = makeLogger(`[vat-worker (${vatId})]`);
+  main().catch(logger.error);
+} else {
+  console.log('no vatId set for env variable NODE_VAT_ID');
+}
 
 /**
  * The main function for the iframe.
  */
 async function main(): Promise<void> {
-  if (!parentPort) {
-    const errMsg = 'Expected to run in Node Worker with parentPort.';
-    logger.error(errMsg);
-    throw new Error(errMsg);
-  }
-  const commandStream = new NodeWorkerDuplexStream<VatCommand, VatCommandReply>(
-    parentPort,
-    isVatCommand,
-  );
+  const commandStream = makeCommandStream();
+  await commandStream.synchronize();
   // eslint-disable-next-line no-void
   void new VatSupervisor({
-    id: 'iframe',
+    id: vatId,
     commandStream,
     makeKVStore: makeSQLKVStore,
   });
