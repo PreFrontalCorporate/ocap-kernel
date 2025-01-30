@@ -1,5 +1,4 @@
 import '@ocap/test-utils/mock-endoify';
-import { define, literal, object } from '@metamask/superstruct';
 import type {
   Kernel,
   KernelCommand,
@@ -7,6 +6,7 @@ import type {
   VatConfig,
   KVStore,
 } from '@ocap/kernel';
+import { setupOcapKernelMock } from '@ocap/test-utils';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import type { KernelControlCommand } from './messages.js';
@@ -19,25 +19,7 @@ vi.mock('@ocap/utils', () => ({
   }),
 }));
 
-let isVatConfigMock = true;
-let isVatIdMock = true;
-
-// Mock kernel validation functions
-// because vitest needs to extend Error stack and under SES it fails
-vi.mock('@ocap/kernel', () => ({
-  isKernelCommand: () => true,
-  isVatId: () => isVatIdMock,
-  isVatConfig: () => isVatConfigMock,
-  VatIdStruct: define<VatId>('VatId', () => isVatIdMock),
-  VatConfigStruct: define<VatConfig>('VatConfig', () => isVatConfigMock),
-  KernelSendVatCommandStruct: object({
-    id: literal('v0'),
-    payload: object({
-      method: literal('ping'),
-      params: literal(null),
-    }),
-  }),
-}));
+const { setMockBehavior, resetMocks } = setupOcapKernelMock();
 
 describe('handlePanelMessage', () => {
   let mockKernel: Kernel;
@@ -45,9 +27,8 @@ describe('handlePanelMessage', () => {
 
   beforeEach(() => {
     vi.resetModules();
+    resetMocks();
 
-    isVatConfigMock = true;
-    isVatIdMock = true;
     mockKVStore = {
       get: vi.fn(),
       getRequired: vi.fn(),
@@ -117,7 +98,7 @@ describe('handlePanelMessage', () => {
 
     it('should handle invalid vat configuration', async () => {
       const { handlePanelMessage } = await import('./handle-panel-message');
-      isVatConfigMock = false;
+      setMockBehavior({ isVatConfig: false });
 
       const message: KernelControlCommand = {
         id: 'test-2',
@@ -173,7 +154,7 @@ describe('handlePanelMessage', () => {
 
     it('should handle invalid vat ID for restartVat command', async () => {
       const { handlePanelMessage } = await import('./handle-panel-message');
-      isVatIdMock = false;
+      setMockBehavior({ isVatId: false });
 
       const message: KernelControlCommand = {
         id: 'test-4',
@@ -277,6 +258,7 @@ describe('handlePanelMessage', () => {
         payload: {
           method: 'getStatus',
           params: {
+            clusterConfig: undefined,
             vats: [
               {
                 id: 'v0',

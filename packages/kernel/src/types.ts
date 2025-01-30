@@ -12,7 +12,9 @@ import {
   record,
   union,
   literal,
+  boolean,
 } from '@metamask/superstruct';
+import type { Infer } from '@metamask/superstruct';
 import type { Json } from '@metamask/utils';
 import { UnsafeJsonStruct } from '@metamask/utils';
 import type { DuplexStream } from '@ocap/streams';
@@ -265,17 +267,14 @@ export const isVatConfig = (value: unknown): value is VatConfig =>
 
 export type VatConfigTable = Record<string, VatConfig>;
 
-export type ClusterConfig = {
-  bootstrap?: string;
-  vats: VatConfigTable;
-  bundles?: VatConfigTable;
-};
-
 export const ClusterConfigStruct = object({
-  bootstrap: optional(string()),
+  bootstrap: string(),
+  forceReset: optional(boolean()),
   vats: record(string(), VatConfigStruct),
   bundles: optional(record(string(), VatConfigStruct)),
 });
+
+export type ClusterConfig = Infer<typeof ClusterConfigStruct>;
 
 export const isClusterConfig = (value: unknown): value is ClusterConfig =>
   is(value, ClusterConfigStruct);

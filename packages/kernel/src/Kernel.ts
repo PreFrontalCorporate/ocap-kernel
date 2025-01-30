@@ -98,28 +98,30 @@ export class Kernel {
    * @param commandStream - Command channel from whatever external software is driving the kernel.
    * @param vatWorkerService - Service to create a worker in which a new vat can run.
    * @param rawStorage - A KV store for holding the kernel's persistent state.
-   * @param logger - Optional logger for error and diagnostic output.
+   * @param options - Options for the kernel constructor.
+   * @param options.resetStorage - If true, the storage will be cleared.
+   * @param options.logger - Optional logger for error and diagnostic output.
    */
   constructor(
     commandStream: DuplexStream<KernelCommand, KernelCommandReply>,
     vatWorkerService: VatWorkerService,
     rawStorage: KVStore,
-    logger?: Logger,
+    options: {
+      resetStorage?: boolean;
+      logger?: Logger;
+    } = {},
   ) {
     this.#mostRecentSubcluster = null;
     this.#commandStream = commandStream;
     this.#vats = new Map();
     this.#vatWorkerService = vatWorkerService;
 
-    // XXX Warning: Clearing storage here is a hack to aid development
-    // debugging, wherein extension reloads are almost exclusively used for
-    // retrying after tweaking some fix. The kernel must not be shipped with the
-    // following line present, as it will prevent the accumulation of long term
-    // kernel state.
-    rawStorage.clear();
+    if (options.resetStorage) {
+      rawStorage.clear();
+    }
 
     this.#storage = makeKernelStore(rawStorage);
-    this.#logger = logger ?? makeLogger('[ocap kernel]');
+    this.#logger = options.logger ?? makeLogger('[ocap kernel]');
     this.#runQueueLength = this.#storage.runQueueLength();
     this.#wakeUpTheRunQueue = null;
   }
@@ -717,23 +719,16 @@ export class Kernel {
   }
 
   /**
-   * Launch a new subcluster with the same configuration as the most recently
-   * launched existing subcluster.
-   *
-   * XXX This is an ugly hack for debugging purposes only. It's here so that you
-   * can set breakpoints in code associated with the creation and launching of
-   * vats. It proved necessary because the extension reload mechanism only gives
-   * control to the debugger after the first default subcluster has already been
-   * created and bootstrapped. Eventually this should go away -- I presume there
-   * must be *some* established procedure for debugging extensions that would
-   * make this unnecessary (people who develop extensions generally need to
-   * debug them, one might think), but if so I haven't been able to find out
-   * what it is.
+   * Reload the kernel.
    */
   async reload(): Promise<void> {
-    if (this.#mostRecentSubcluster) {
-      await this.launchSubcluster(this.#mostRecentSubcluster);
+    if (!this.#mostRecentSubcluster) {
+      throw Error('no subcluster to reload');
     }
+
+    await this.terminateAllVats();
+
+    await this.launchSubcluster(this.#mostRecentSubcluster);
   }
 
   /**
@@ -778,6 +773,25 @@ export class Kernel {
       throw new VatNotFoundError(vatId);
     }
     return vat;
+  }
+
+  /**
+   * Update the current cluster configuration
+   *
+   * @param config - The new cluster configuration
+   */
+  set clusterConfig(config: ClusterConfig) {
+    isClusterConfig(config) || Fail`invalid cluster config`;
+    this.#mostRecentSubcluster = config;
+  }
+
+  /**
+   * Get the current cluster configuration
+   *
+   * @returns The current cluster configuration
+   */
+  get clusterConfig(): ClusterConfig | null {
+    return this.#mostRecentSubcluster;
   }
 }
 harden(Kernel);
