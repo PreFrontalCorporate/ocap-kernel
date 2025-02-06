@@ -1,16 +1,16 @@
-import { defineProject, mergeConfig } from 'vitest/config';
+import { defineConfig, defineProject } from 'vitest/config';
+import { mergeConfig } from '@ocap/test-utils/vitest-config';
 
 import defaultConfig from '../../vitest.config.js';
 
-const config = mergeConfig(
-  defaultConfig,
-  defineProject({
-    test: {
-      name: 'PACKAGE_DIRECTORY_NAME',
-    },
-  }),
-);
-
-config.test.coverage.thresholds = true;
-
-export default config;
+export default defineConfig((args) => {
+  return mergeConfig(
+    args,
+    defaultConfig,
+    defineProject({
+      test: {
+        name: 'PACKAGE_DIRECTORY_NAME',
+      },
+    }),
+  );
+});

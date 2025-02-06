@@ -28,6 +28,9 @@ const config = createConfig([
     languageOptions: {
       sourceType: 'module',
     },
+    rules: {
+      'import-x/no-unresolved': ['error', { commonjs: false }],
+    },
   },
 
   {
@@ -183,10 +186,6 @@ const config = createConfig([
     },
   },
 
-  // ////////////////////////// //
-  // Package-specific overrides //
-  // ////////////////////////// //
-
   {
     files: ['packages/shims/**/*'],
     languageOptions: {
@@ -196,14 +195,15 @@ const config = createConfig([
 
   {
     files: [
+      '**/vitest.config.ts',
       'packages/nodejs/**/*-worker.ts',
       'packages/nodejs/test/workers/**/*',
     ],
     rules: {
-      // Node workers have reasonable cause to read from process.env
       'n/no-process-env': 'off',
     },
   },
+
   {
     files: ['packages/nodejs/test/workers/**/*'],
     rules: {
