@@ -1,4 +1,5 @@
 import { mergeConfig } from '@ocap/test-utils/vitest-config';
+import path from 'path';
 import { defineConfig, defineProject } from 'vitest/config';
 
 import defaultConfig from '../../vitest.config.js';
@@ -9,10 +10,8 @@ export default defineConfig((args) => {
     defaultConfig,
     defineProject({
       test: {
-        name: 'nodejs:e2e',
-        pool: 'forks',
-        include: ['./test/e2e/**/*.test.ts'],
-        exclude: ['./src/**/*'],
+        name: 'store',
+        setupFiles: path.resolve(__dirname, '../shims/src/endoify.js'),
       },
     }),
   );

@@ -25,7 +25,8 @@
     { "path": "../streams" },
     { "path": "../test-utils" },
     { "path": "../utils" },
-    { "path": "../kernel" }
+    { "path": "../kernel" },
+    { "path": "../store" }
   ],
   "include": [
     "../../vitest.config.ts",
@@ -40,7 +41,6 @@
     "./test/**/*.ts",
     "./vite-plugins/*.ts",
     "./vite.config.ts",
-    "./vitest.config.ts",
-    "../../types"
+    "./vitest.config.ts"
   ]
 }

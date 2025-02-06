@@ -7,13 +7,8 @@
     { "path": "../errors" },
     { "path": "../streams" },
     { "path": "../utils" },
-    { "path": "../test-utils" }
+    { "path": "../test-utils" },
+    { "path": "../store" }
   ],
-  "include": [
-    "./src",
-    "./test",
-    "./vite.config.ts",
-    "./vitest.config.ts",
-    "../../types"
-  ]
+  "include": ["./src", "./test", "./vite.config.ts", "./vitest.config.ts"]
 }
