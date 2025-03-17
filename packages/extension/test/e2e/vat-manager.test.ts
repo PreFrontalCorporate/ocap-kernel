@@ -141,6 +141,10 @@ test.describe('Vat Manager', () => {
     await expect(
       popupPage.locator('button:text("Reload Kernel")'),
     ).toBeVisible();
+    const clearLogsButton = popupPage.locator(
+      '[data-testid="clear-logs-button"]',
+    );
+    await clearLogsButton.click();
     await popupPage.click('button:text("Reload Kernel")');
     await expect(popupPage.locator('#root')).toContainText(
       'Default sub-cluster reloaded',
@@ -235,5 +239,26 @@ test.describe('Vat Manager', () => {
     await expect(vatTable).toContainText(
       minimalClusterConfig.vats.main.parameters.name,
     );
+  });
+
+  test('should send a message from the message panel', async () => {
+    await launchVat();
+    const clearLogsButton = popupPage.locator(
+      '[data-testid="clear-logs-button"]',
+    );
+    await clearLogsButton.click();
+    await popupPage.fill(
+      'input[placeholder="Enter sendVatCommand params (as JSON)"]',
+      `{
+        "id": "v1",
+        "payload": {
+          "method": "ping",
+          "params": null
+        }
+      }`,
+    );
+    await popupPage.click('button:text("Send")');
+    await expect(popupPage.locator('#root')).toContainText('"method": "ping",');
+    await expect(popupPage.locator('#root')).toContainText('{"result":"pong"}');
   });
 });
