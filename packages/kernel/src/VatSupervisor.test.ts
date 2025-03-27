@@ -7,8 +7,23 @@ import { VatCommandMethod } from './messages/index.ts';
 import type { VatCommand, VatCommandReply } from './messages/index.ts';
 import { VatSupervisor } from './VatSupervisor.ts';
 
+vi.mock('./syscall.ts', () => ({
+  makeSupervisorSyscall: vi.fn(() => ({
+    vatstoreGet: vi.fn(),
+    vatstoreSet: vi.fn(),
+  })),
+}));
+
+vi.mock('@agoric/swingset-liveslots', () => ({
+  makeLiveSlots: vi.fn(() => ({
+    dispatch: vi.fn(),
+    makeVat: vi.fn(),
+  })),
+}));
+
 const makeVatSupervisor = async (
-  handleWrite: (input: unknown) => void | Promise<void> = () => undefined,
+  handleWrite?: (input: unknown) => void | Promise<void>,
+  vatPowers?: Record<string, unknown>,
 ): Promise<{
   supervisor: VatSupervisor;
   stream: TestDuplexStream<VatCommand, VatCommandReply>;
@@ -16,13 +31,12 @@ const makeVatSupervisor = async (
   const commandStream = await TestDuplexStream.make<
     VatCommand,
     VatCommandReply
-  >(handleWrite);
+  >(handleWrite ?? (() => undefined));
   return {
     supervisor: new VatSupervisor({
       id: 'test-id',
       commandStream,
-      // @ts-expect-error Mock
-      makeKVStore: async () => ({}),
+      vatPowers: vatPowers ?? {},
     }),
     stream: commandStream,
   };
