@@ -12,9 +12,6 @@ import type { DuplexStream } from '@ocap/streams';
 import type { Logger } from '@ocap/utils';
 import { makeLogger } from '@ocap/utils';
 
-import { assert, Fail } from './assert.ts';
-import { kser, kunser, krefOf, kslot } from './kernel-marshal.ts';
-import type { SlotValue } from './kernel-marshal.ts';
 import { isKernelCommand, KernelCommandMethod } from './messages/index.ts';
 import type {
   KernelCommand,
@@ -22,12 +19,13 @@ import type {
   VatCommand,
   VatCommandReturnType,
 } from './messages/index.ts';
-import {
-  parseRef,
-  isPromiseRef,
-  makeKernelStore,
-} from './store/kernel-store.ts';
+import { processGCActionSet } from './services/garbage-collection.ts';
+import type { SlotValue } from './services/kernel-marshal.ts';
+import { kser, kunser, krefOf, kslot } from './services/kernel-marshal.ts';
+import { makeKernelStore } from './store/kernel-store.ts';
 import type { KernelStore } from './store/kernel-store.ts';
+import { parseRef } from './store/utils/parse-ref.ts';
+import { isPromiseRef } from './store/utils/promise-ref.ts';
 import type {
   VatId,
   VRef,
@@ -45,6 +43,7 @@ import {
   insistMessage,
   isClusterConfig,
 } from './types.ts';
+import { assert, Fail } from './utils/assert.ts';
 import { VatHandle } from './VatHandle.ts';
 
 /**
@@ -193,6 +192,18 @@ export class Kernel {
    */
   async *#runQueueItems(): AsyncGenerator<RunQueueItem> {
     for (;;) {
+      const gcAction = processGCActionSet(this.#kernelStore);
+      if (gcAction) {
+        yield gcAction;
+        continue;
+      }
+
+      const reapAction = this.#kernelStore.nextReapAction();
+      if (reapAction) {
+        yield reapAction;
+        continue;
+      }
+
       while (this.#runQueueLength > 0) {
         const item = this.#dequeueRun();
         if (item) {
@@ -201,6 +212,7 @@ export class Kernel {
           break;
         }
       }
+
       if (this.#runQueueLength === 0) {
         const { promise, resolve } = makePromiseKit<void>();
         if (this.#wakeUpTheRunQueue !== null) {
@@ -580,6 +592,38 @@ export class Kernel {
         const vat = this.#getVat(vatId);
         await vat.deliverNotify(resolutions);
         log(`@@@@ done ${vatId} notify ${kpid}`);
+        break;
+      }
+      case 'dropExports': {
+        const { vatId, krefs } = item;
+        log(`@@@@ deliver ${vatId} dropExports`, krefs);
+        const vat = this.#getVat(vatId);
+        await vat.deliverDropExports(krefs);
+        log(`@@@@ done ${vatId} dropExports`, krefs);
+        break;
+      }
+      case 'retireExports': {
+        const { vatId, krefs } = item;
+        log(`@@@@ deliver ${vatId} retireExports`, krefs);
+        const vat = this.#getVat(vatId);
+        await vat.deliverRetireExports(krefs);
+        log(`@@@@ done ${vatId} retireExports`, krefs);
+        break;
+      }
+      case 'retireImports': {
+        const { vatId, krefs } = item;
+        log(`@@@@ deliver ${vatId} retireImports`, krefs);
+        const vat = this.#getVat(vatId);
+        await vat.deliverRetireImports(krefs);
+        log(`@@@@ done ${vatId} retireImports`, krefs);
+        break;
+      }
+      case 'bringOutYourDead': {
+        const { vatId } = item;
+        log(`@@@@ deliver ${vatId} bringOutYourDead`);
+        const vat = this.#getVat(vatId);
+        await vat.deliverBringOutYourDead();
+        log(`@@@@ done ${vatId} bringOutYourDead`);
         break;
       }
       default:

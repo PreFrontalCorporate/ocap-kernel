@@ -9,8 +9,8 @@ import type {
 import type { CapData } from '@endo/marshal';
 import type { KVStore } from '@ocap/store';
 
-import type { Syscall, SyscallResult } from './ag-liveslots-types.ts';
-import type { VatSupervisor } from './VatSupervisor.ts';
+import type { Syscall, SyscallResult } from './types.ts';
+import type { VatSupervisor } from '../VatSupervisor.ts';
 
 /**
  * This returns a function that is provided to liveslots as the 'syscall'
@@ -76,7 +76,6 @@ function makeSupervisorSyscall(
     retireImports: (vrefs: string[]) => doSyscall(['retireImports', vrefs]),
     retireExports: (vrefs: string[]) => doSyscall(['retireExports', vrefs]),
     abandonExports: (vrefs: string[]) => doSyscall(['abandonExports', vrefs]),
-
     callNow: (_target: string, _method: string, _args: unknown[]) => {
       throw Error(`callNow not supported (we have no devices)`);
     },

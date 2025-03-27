@@ -58,6 +58,12 @@ import { Fail } from '@endo/errors';
 import type { CapData } from '@endo/marshal';
 import type { KVStore, VatStore, KernelDatabase } from '@ocap/store';
 
+import { insistKernelType } from './utils/kernel-slots.ts';
+import { parseRef } from './utils/parse-ref.ts';
+import {
+  buildReachableAndVatSlot,
+  parseReachableAndVatSlot,
+} from './utils/reachable.ts';
 import type {
   VatId,
   RemoteId,
@@ -67,8 +73,10 @@ import type {
   RunQueueItem,
   PromiseState,
   KernelPromise,
+  RunQueueItemBringOutYourDead,
+  GCAction,
 } from '../types.ts';
-import { insistVatId } from '../types.ts';
+import { insistGCActionType, insistVatId, RunQueueItemType } from '../types.ts';
 
 type StoredValue = {
   get(): string | undefined;
@@ -82,13 +90,6 @@ type StoredQueue = {
   delete(): void;
 };
 
-type RefParts = {
-  context: 'kernel' | 'vat' | 'remote';
-  direction?: 'export' | 'import';
-  isPromise: boolean;
-  index: string;
-};
-
 /**
  * Test if a KRef designates a promise.
  *
@@ -98,57 +99,6 @@ type RefParts = {
  */
 export function isPromiseRef(kref: KRef): boolean {
   return kref[1] === 'p';
-}
-
-/**
- * Parse an alleged ref string into its components.
- *
- * @param ref - The string to be parsed.
- *
- * @returns an object with all of the ref string components as individual properties.
- */
-export function parseRef(ref: string): RefParts {
-  let context;
-  let typeIdx = 1;
-
-  switch (ref[0]) {
-    case 'k':
-      context = 'kernel';
-      break;
-    case 'o':
-    case 'p':
-      typeIdx = 0;
-      context = 'vat';
-      break;
-    case 'r':
-      context = 'remote';
-      break;
-    case undefined:
-    default:
-      Fail`invalid reference context ${ref[0]}`;
-  }
-  if (ref[typeIdx] !== 'p' && ref[typeIdx] !== 'o') {
-    Fail`invalid reference type ${ref[typeIdx]}`;
-  }
-  const isPromise = ref[typeIdx] === 'p';
-  let direction;
-  let index;
-  if (context === 'kernel') {
-    index = ref.slice(2);
-  } else {
-    const dirIdx = typeIdx + 1;
-    if (ref[dirIdx] !== '+' && ref[dirIdx] !== '-') {
-      Fail`invalid reference direction ${ref[dirIdx]}`;
-    }
-    direction = ref[dirIdx] === '+' ? 'export' : 'import';
-    index = ref.slice(dirIdx + 1);
-  }
-  return {
-    context,
-    direction,
-    isPromise,
-    index,
-  } as RefParts;
 }
 
 /**
@@ -182,6 +132,21 @@ export function makeKernelStore(kdb: KernelDatabase) {
   let nextObjectId = provideCachedStoredValue('nextObjectId', '1');
   /** Counter for allocating kernel promise IDs */
   let nextPromiseId = provideCachedStoredValue('nextPromiseId', '1');
+
+  // As refcounts are decremented, we accumulate a set of krefs for which
+  // action might need to be taken:
+  //   * promises which are now resolved and unreferenced can be deleted
+  //   * objects which are no longer reachable: export can be dropped
+  //   * objects which are no longer recognizable: export can be retired
+  // This set is ephemeral: it lives in RAM, grows as deliveries and syscalls
+  // cause decrefs, and will be harvested by processRefcounts(). This needs to be
+  // called in the same transaction window as the syscalls/etc which prompted
+  // the change, else removals might be lost (not performed during the next
+  // replay).
+  const maybeFreeKrefs = new Set<KRef>();
+  // Garbage collection
+  let gcActions = provideCachedStoredValue('gcActions', '[]');
+  let reapQueue = provideCachedStoredValue('reapQueue', '[]');
 
   /**
    * Provide a stored value object for which we keep an in-memory cache. We only
@@ -497,7 +462,7 @@ export function makeKernelStore(kdb: KernelDatabase) {
   function initKernelObject(owner: EndpointId): KRef {
     const koId = getNextObjectId();
     kv.set(`${koId}.owner`, owner);
-    kv.set(refCountKey(koId), '1');
+    setObjectRefCount(koId, { reachable: 1, recognizable: 1 });
     return koId;
   }
 
@@ -695,7 +660,7 @@ export function makeKernelStore(kdb: KernelDatabase) {
    * if there is no such mapping.
    */
   function erefToKref(endpointId: EndpointId, eref: ERef): KRef | undefined {
-    return kv.get(`cle.${endpointId}.${eref}`);
+    return kv.get(getSlotKey(endpointId, eref));
   }
 
   /**
@@ -707,7 +672,13 @@ export function makeKernelStore(kdb: KernelDatabase) {
    * there is no such mapping.
    */
   function krefToEref(endpointId: EndpointId, kref: KRef): ERef | undefined {
-    return kv.get(`clk.${endpointId}.${kref}`);
+    const key = getSlotKey(endpointId, kref);
+    const data = kv.get(key);
+    if (!data) {
+      return undefined;
+    }
+    const { vatSlot } = parseReachableAndVatSlot(data);
+    return vatSlot;
   }
 
   /**
@@ -720,8 +691,8 @@ export function makeKernelStore(kdb: KernelDatabase) {
    * @param eref - The ERef.
    */
   function addClistEntry(endpointId: EndpointId, kref: KRef, eref: ERef): void {
-    kv.set(`clk.${endpointId}.${kref}`, eref);
-    kv.set(`cle.${endpointId}.${eref}`, kref);
+    kv.set(getSlotKey(endpointId, kref), buildReachableAndVatSlot(true, eref));
+    kv.set(getSlotKey(endpointId, eref), kref);
   }
 
   /**
@@ -736,8 +707,17 @@ export function makeKernelStore(kdb: KernelDatabase) {
     kref: KRef,
     eref: ERef,
   ): void {
-    kv.delete(`clk.${endpointId}.${kref}`);
-    kv.delete(`cle.${endpointId}.${eref}`);
+    const kernelKey = getSlotKey(endpointId, kref);
+    const vatKey = getSlotKey(endpointId, eref);
+    assert(kv.get(kernelKey));
+    clearReachableFlag(endpointId, kref);
+    const { direction } = parseRef(eref);
+    decrementRefCount(kref, {
+      isExport: direction === 'export',
+      onlyRecognizable: true,
+    });
+    kv.delete(kernelKey);
+    kv.delete(vatKey);
   }
 
   /**
@@ -794,6 +774,282 @@ export function makeKernelStore(kdb: KernelDatabase) {
     nextRemoteId = provideCachedStoredValue('nextRemoteId', '1');
     nextObjectId = provideCachedStoredValue('nextObjectId', '1');
     nextPromiseId = provideCachedStoredValue('nextPromiseId', '1');
+    maybeFreeKrefs.clear();
+    gcActions = provideCachedStoredValue('gcActions', '[]');
+    reapQueue = provideCachedStoredValue('reapQueue', '[]');
+  }
+
+  /**
+   * Check if a kernel object exists in the kernel's persistent state.
+   *
+   * @param kref - The KRef of the kernel object in question.
+   * @returns True if the kernel object exists, false otherwise.
+   */
+  function kernelRefExists(kref: KRef): boolean {
+    return Boolean(kv.get(refCountKey(kref)));
+  }
+
+  /**
+   * Get the reference counts for a kernel object
+   *
+   * @param kref - The KRef of the object of interest.
+   * @returns The reference counts for the object.
+   */
+  function getObjectRefCount(kref: KRef): {
+    reachable: number;
+    recognizable: number;
+  } {
+    const data = kv.get(refCountKey(kref));
+    if (!data) {
+      return { reachable: 0, recognizable: 0 };
+    }
+    const [reachable = 0, recognizable = 0] = data.split(',').map(Number);
+    reachable <= recognizable ||
+      Fail`refMismatch(get) ${kref} ${reachable},${recognizable}`;
+    return { reachable, recognizable };
+  }
+
+  /**
+   * Set the reference counts for a kernel object
+   *
+   * @param kref - The KRef of the object of interest.
+   * @param counts - The reference counts to set.
+   * @param counts.reachable - The reachable reference count.
+   * @param counts.recognizable - The recognizable reference count.
+   */
+  function setObjectRefCount(
+    kref: KRef,
+    counts: { reachable: number; recognizable: number },
+  ): void {
+    const { reachable, recognizable } = counts;
+    assert.typeof(reachable, 'number');
+    assert.typeof(recognizable, 'number');
+    (reachable >= 0 && recognizable >= 0) ||
+      Fail`${kref} underflow ${reachable},${recognizable}`;
+    reachable <= recognizable ||
+      Fail`refMismatch(set) ${kref} ${reachable},${recognizable}`;
+    kv.set(refCountKey(kref), `${reachable},${recognizable}`);
+  }
+
+  /**
+   * Get the set of GC actions to perform.
+   *
+   * @returns The set of GC actions to perform.
+   */
+  function getGCActions(): Set<GCAction> {
+    return new Set(JSON.parse(gcActions.get() ?? '[]'));
+  }
+
+  /**
+   * Set the set of GC actions to perform.
+   *
+   * @param actions - The set of GC actions to perform.
+   */
+  function setGCActions(actions: Set<GCAction>): void {
+    const a = Array.from(actions);
+    a.sort();
+    gcActions.set(JSON.stringify(a));
+  }
+
+  /**
+   * Add a new GC action to the set of GC actions to perform.
+   *
+   * @param newActions - The new GC action to add.
+   */
+  function addGCActions(newActions: GCAction[]): void {
+    const actions = getGCActions();
+    for (const action of newActions) {
+      assert.typeof(action, 'string', 'addGCActions given bad action');
+      const [vatId, type, kref] = action.split(' ');
+      insistVatId(vatId);
+      insistGCActionType(type);
+      insistKernelType('object', kref);
+      actions.add(action);
+    }
+    setGCActions(actions);
+  }
+
+  /**
+   * Check if a kernel object is reachable.
+   *
+   * @param endpointId - The endpoint for which the reachable flag is being checked.
+   * @param kref - The kref.
+   * @returns True if the kernel object is reachable, false otherwise.
+   */
+  function getReachableFlag(endpointId: EndpointId, kref: KRef): boolean {
+    const key = getSlotKey(endpointId, kref);
+    const data = kv.getRequired(key);
+    const { isReachable } = parseReachableAndVatSlot(data);
+    return isReachable;
+  }
+
+  /**
+   * Clear the reachable flag for a given endpoint and kref.
+   *
+   * @param endpointId - The endpoint for which the reachable flag is being cleared.
+   * @param kref - The kref.
+   */
+  function clearReachableFlag(endpointId: EndpointId, kref: KRef): void {
+    const key = getSlotKey(endpointId, kref);
+    const { isReachable, vatSlot } = parseReachableAndVatSlot(
+      kv.getRequired(key),
+    );
+    kv.set(key, buildReachableAndVatSlot(false, vatSlot));
+    const { direction, isPromise } = parseRef(vatSlot);
+    // decrement 'reachable' part of refcount, but only for object imports
+    if (
+      isReachable &&
+      !isPromise &&
+      direction === 'import' &&
+      kernelRefExists(kref)
+    ) {
+      const counts = getObjectRefCount(kref);
+      counts.reachable -= 1;
+      setObjectRefCount(kref, counts);
+      if (counts.reachable === 0) {
+        maybeFreeKrefs.add(kref);
+      }
+    }
+  }
+
+  /**
+   * Schedule a vat for reaping.
+   *
+   * @param vatId - The vat to schedule for reaping.
+   */
+  function scheduleReap(vatId: VatId): void {
+    const queue = JSON.parse(reapQueue.get() ?? '[]');
+    if (!queue.includes(vatId)) {
+      queue.push(vatId);
+      reapQueue.set(JSON.stringify(queue));
+    }
+  }
+
+  /**
+   * Get the next reap action.
+   *
+   * @returns The next reap action, or undefined if the queue is empty.
+   */
+  function nextReapAction(): RunQueueItemBringOutYourDead | undefined {
+    const queue = JSON.parse(reapQueue.get() ?? '[]');
+    if (queue.length > 0) {
+      const vatId = queue.shift();
+      reapQueue.set(JSON.stringify(queue));
+      return harden({ type: RunQueueItemType.bringOutYourDead, vatId });
+    }
+    return undefined;
+  }
+
+  /**
+   * Get the key for the reachable flag and vatSlot for a given endpoint and kref.
+   *
+   * @param endpointId - The endpoint for which the reachable flag is being set.
+   * @param kref - The kref.
+   * @returns The key for the reachable flag and vatSlot.
+   */
+  function getSlotKey(endpointId: EndpointId, kref: KRef): string {
+    return `${endpointId}.c.${kref}`;
+  }
+
+  /**
+   * Test if there's a c-list entry for some slot.
+   *
+   * @param endpointId - The endpoint of interest
+   * @param slot - The slot of interest
+   * @returns true iff this vat has a c-list entry mapping for `slot`.
+   */
+  function hasCListEntry(endpointId: EndpointId, slot: string): boolean {
+    return kv.get(getSlotKey(endpointId, slot)) !== undefined;
+  }
+
+  /**
+   * Increment the reference count associated with some kernel object.
+   *
+   * We track references to promises and objects, but not devices. Promises
+   * have only a "reachable" count, whereas objects track both "reachable"
+   * and "recognizable" counts.
+   *
+   * @param kref - The kernel slot whose refcount is to be incremented.
+   * @param options - Options for the increment.
+   * @param options.isExport - True if the reference comes from a clist export, which counts for promises but not objects.
+   * @param options.onlyRecognizable - True if the reference provides only recognition, not reachability.
+   */
+  function incrementRefCount(
+    kref: KRef,
+    {
+      isExport = false,
+      onlyRecognizable = false,
+    }: { isExport?: boolean; onlyRecognizable?: boolean },
+  ): void {
+    kref || Fail`incrementRefCount called with empty kref`;
+
+    const { isPromise } = parseRef(kref);
+    if (isPromise) {
+      const refCount = Number(kv.get(refCountKey(kref))) + 1;
+      kv.set(refCountKey(kref), `${refCount}`);
+      return;
+    }
+
+    // If `isExport` the reference comes from a clist export, which counts for promises but not objects
+    if (isExport) {
+      return;
+    }
+
+    const counts = getObjectRefCount(kref);
+    if (!onlyRecognizable) {
+      counts.reachable += 1;
+    }
+    counts.recognizable += 1;
+    setObjectRefCount(kref, counts);
+  }
+
+  /**
+   * Decrement the reference count associated with some kernel object.
+   *
+   * @param kref - The kernel slot whose refcount is to be decremented.
+   * @param options - Options for the decrement.
+   * @param options.isExport - True if the reference comes from a clist export, which counts for promises but not objects.
+   * @param options.onlyRecognizable - True if the reference provides only recognition, not reachability.
+   * @returns True if the reference count has been decremented to zero, false if it is still non-zero.
+   * @throws if this tries to decrement the reference count below zero.
+   */
+  function decrementRefCount(
+    kref: KRef,
+    {
+      isExport = false,
+      onlyRecognizable = false,
+    }: { isExport?: boolean; onlyRecognizable?: boolean },
+  ): boolean {
+    kref || Fail`decrementRefCount called with empty kref`;
+
+    const { isPromise } = parseRef(kref);
+    if (isPromise) {
+      let refCount = Number(kv.get(refCountKey(kref)));
+      refCount > 0 || Fail`refCount underflow ${kref}`;
+      refCount -= 1;
+      kv.set(refCountKey(kref), `${refCount}`);
+      if (refCount === 0) {
+        maybeFreeKrefs.add(kref);
+        return true;
+      }
+      return false;
+    }
+
+    if (isExport || !kernelRefExists(kref)) {
+      return false;
+    }
+
+    const counts = getObjectRefCount(kref);
+    if (!onlyRecognizable) {
+      counts.reachable -= 1;
+    }
+    counts.recognizable -= 1;
+    if (!counts.reachable || !counts.recognizable) {
+      maybeFreeKrefs.add(kref);
+    }
+    setObjectRefCount(kref, counts);
+
+    return false;
   }
 
   return harden({
@@ -827,6 +1083,22 @@ export function makeKernelStore(kdb: KernelDatabase) {
     makeVatStore,
     reset,
     kv,
+    kernelRefExists,
+    hasCListEntry,
+    getReachableFlag,
+    clearReachableFlag,
+    getObjectRefCount,
+    setObjectRefCount,
+    getGCActions,
+    setGCActions,
+    addGCActions,
+    nextReapAction,
+    scheduleReap,
+    incrementRefCount,
+    decrementRefCount,
+    createStoredQueue,
+    deleteClistEntry,
+    getQueueLength,
   });
 }
 

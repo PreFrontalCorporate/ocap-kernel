@@ -19,6 +19,7 @@ import type {
   VatCommandReturnType,
 } from './messages/index.ts';
 import type { KernelStore } from './store/kernel-store.ts';
+import { parseRef } from './store/utils/parse-ref.ts';
 import type {
   PromiseCallbacks,
   VatId,
@@ -313,6 +314,76 @@ export class VatHandle {
   }
 
   /**
+   * Handle a 'dropImports' syscall from the vat.
+   *
+   * @param krefs - The KRefs of the imports to be dropped.
+   */
+  #handleSyscallDropImports(krefs: KRef[]): void {
+    for (const kref of krefs) {
+      const { direction, isPromise } = parseRef(kref);
+      // We validate it's an import - meaning this vat received this object from somewhere else
+      if (direction === 'export' || isPromise) {
+        throw Error(
+          `vat ${this.vatId} issued invalid syscall dropImports for ${kref}`,
+        );
+      }
+      this.#kernelStore.clearReachableFlag(this.vatId, kref);
+    }
+  }
+
+  /**
+   * Handle a 'retireImports' syscall from the vat.
+   *
+   * @param krefs - The KRefs of the imports to be retired.
+   */
+  #handleSyscallRetireImports(krefs: KRef[]): void {
+    for (const kref of krefs) {
+      const { direction, isPromise } = parseRef(kref);
+      // We validate it's an import - meaning this vat received this object from somewhere else
+      if (direction === 'export' || isPromise) {
+        throw Error(
+          `vat ${this.vatId} issued invalid syscall retireImports for ${kref}`,
+        );
+      }
+      if (this.#kernelStore.getReachableFlag(this.vatId, kref)) {
+        throw Error(`syscall.retireImports but ${kref} is still reachable`);
+      }
+      // deleting the clist entry will decrement the recognizable count, but
+      // not the reachable count (because it was unreachable, as we asserted)
+      this.#kernelStore.forgetKref(this.vatId, kref);
+    }
+  }
+
+  /**
+   * Handle retiring or abandoning exports syscall from the vat.
+   *
+   * @param krefs - The KRefs of the exports to be retired/abandoned.
+   * @param checkReachable - If true, verify the object is not reachable (retire). If false, ignore reachability (abandon).
+   */
+  #handleSyscallExportCleanup(krefs: KRef[], checkReachable: boolean): void {
+    const action = checkReachable ? 'retire' : 'abandon';
+
+    for (const kref of krefs) {
+      const { direction, isPromise } = parseRef(kref);
+      // We validate it's an export - meaning this vat created/owns this object
+      if (direction === 'import' || isPromise) {
+        throw Error(
+          `vat ${this.vatId} issued invalid syscall ${action}Exports for ${kref}`,
+        );
+      }
+      if (checkReachable) {
+        if (this.#kernelStore.getReachableFlag(this.vatId, kref)) {
+          throw Error(
+            `syscall.${action}Exports but ${kref} is still reachable`,
+          );
+        }
+      }
+      this.#kernelStore.forgetKref(this.vatId, kref);
+      this.#logger.debug(`${action}Exports: deleted object ${kref}`);
+    }
+  }
+
+  /**
    * Handle a syscall from the vat.
    *
    * @param vso - The syscall that was received.
@@ -354,24 +425,28 @@ export class VatHandle {
         // [KRef[]];
         const [, refs] = kso;
         log(`@@@@ ${vatId} syscall dropImports ${JSON.stringify(refs)}`);
+        this.#handleSyscallDropImports(refs);
         break;
       }
       case 'retireImports': {
         // [KRef[]];
         const [, refs] = kso;
         log(`@@@@ ${vatId} syscall retireImports ${JSON.stringify(refs)}`);
+        this.#handleSyscallRetireImports(refs);
         break;
       }
       case 'retireExports': {
         // [KRef[]];
         const [, refs] = kso;
         log(`@@@@ ${vatId} syscall retireExports ${JSON.stringify(refs)}`);
+        this.#handleSyscallExportCleanup(refs, true);
         break;
       }
       case 'abandonExports': {
         // [KRef[]];
         const [, refs] = kso;
         log(`@@@@ ${vatId} syscall abandonExports ${JSON.stringify(refs)}`);
+        this.#handleSyscallExportCleanup(refs, false);
         break;
       }
       case 'callNow':
@@ -447,6 +522,52 @@ export class VatHandle {
     await this.sendVatCommand({
       method: VatCommandMethod.deliver,
       params: ['notify', resolutions],
+    });
+  }
+
+  /**
+   * Make a 'dropExports' delivery to the vat.
+   *
+   * @param krefs - The KRefs of the exports to be dropped.
+   */
+  async deliverDropExports(krefs: KRef[]): Promise<void> {
+    await this.sendVatCommand({
+      method: VatCommandMethod.deliver,
+      params: ['dropExports', krefs],
+    });
+  }
+
+  /**
+   * Make a 'retireExports' delivery to the vat.
+   *
+   * @param krefs - The KRefs of the exports to be retired.
+   */
+  async deliverRetireExports(krefs: KRef[]): Promise<void> {
+    await this.sendVatCommand({
+      method: VatCommandMethod.deliver,
+      params: ['retireExports', krefs],
+    });
+  }
+
+  /**
+   * Make a 'retireImports' delivery to the vat.
+   *
+   * @param krefs - The KRefs of the imports to be retired.
+   */
+  async deliverRetireImports(krefs: KRef[]): Promise<void> {
+    await this.sendVatCommand({
+      method: VatCommandMethod.deliver,
+      params: ['retireImports', krefs],
+    });
+  }
+
+  /**
+   * Make a 'bringOutYourDead' delivery to the vat.
+   */
+  async deliverBringOutYourDead(): Promise<void> {
+    await this.sendVatCommand({
+      method: VatCommandMethod.deliver,
+      params: ['bringOutYourDead'],
     });
   }
 
