@@ -1,5 +1,9 @@
 import type { KVStore, KernelDatabase, VatStore } from '@ocap/store';
 
+import { keySearch } from '../src/utils/key-search.ts';
+
+/* eslint-disable no-lonely-if, no-else-return */ // stupid rules that encourage unclear code
+
 /**
  * A mock key/value store realized as a Map<string, string>.
  *
@@ -18,28 +22,56 @@ export function makeMapKVStore(): KVStore {
  * @returns The mock {@link KVStore}.
  */
 function makeMapKVStoreInternal(map: Map<string, string>): KVStore {
-  /**
-   * Like `get`, but fail if the key isn't there.
-   *
-   * @param key - The key to fetch.
-   * @returns The value at `key`.
-   */
-  function getRequired(key: string): string {
-    const result = map.get(key);
-    if (result === undefined) {
-      throw Error(`No value found for key ${key}.`);
-    }
-    return result;
-  }
+  let keyCache: string[] | null = null;
+  let lastNextKey: string | null = null;
+  let lastNextKeyIndex: number = -1;
 
   return {
-    get: map.get.bind(map),
-    getNextKey: (_key: string): string | undefined => {
-      throw Error(`mock store does not (yet) support getNextKey`);
+    get(key: string): string | undefined {
+      return map.get(key);
     },
-    getRequired,
-    set: map.set.bind(map),
-    delete: map.delete.bind(map),
+    getNextKey(key: string): string | undefined {
+      if (keyCache === null) {
+        keyCache = Array.from(map.keys()).sort();
+      }
+      const index =
+        lastNextKey === key ? lastNextKeyIndex : keySearch(keyCache, key);
+      if (index < 0) {
+        lastNextKey = null;
+        lastNextKeyIndex = -1;
+        return undefined;
+      }
+      lastNextKey = keyCache[index] as string;
+      if (key < lastNextKey) {
+        lastNextKeyIndex = index;
+        return lastNextKey;
+      } else {
+        if (index + 1 >= keyCache.length) {
+          lastNextKey = null;
+          lastNextKeyIndex = -1;
+          return undefined;
+        } else {
+          lastNextKey = keyCache[index + 1] as string;
+          lastNextKeyIndex = index + 1;
+          return lastNextKey;
+        }
+      }
+    },
+    getRequired(key: string): string {
+      const result = map.get(key);
+      if (result === undefined) {
+        throw Error(`No value found for key ${key}.`);
+      }
+      return result;
+    },
+    set(key: string, value: string): void {
+      map.set(key, value);
+      keyCache = null;
+    },
+    delete(key: string): void {
+      map.delete(key);
+      keyCache = null;
+    },
   };
 }
 
@@ -77,20 +109,23 @@ function makeMapVatStore(_vatID: string): ClearableVatStore {
  */
 export function makeMapKernelDatabase(): KernelDatabase {
   const map = new Map<string, string>();
-  const vatStores = new Set<ClearableVatStore>();
+  const vatStores = new Map<string, ClearableVatStore>();
   return {
     kernelKVStore: makeMapKVStoreInternal(map),
     clear: () => {
       map.clear();
-      for (const vs of vatStores) {
+      for (const vs of vatStores.values()) {
         vs.clear();
       }
     },
     executeQuery: () => [],
     makeVatStore: (vatID: string) => {
       const store = makeMapVatStore(vatID);
-      vatStores.add(store);
+      vatStores.set(vatID, store);
       return store;
+    },
+    deleteVatStore: (vatID: string) => {
+      vatStores.delete(vatID);
     },
   };
 }
