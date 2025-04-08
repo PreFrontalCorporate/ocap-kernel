@@ -1,8 +1,8 @@
 import { Fail } from '@endo/errors';
 
 import { getBaseMethods } from './base.ts';
-import { getGCMethods } from './gc.ts';
 import { getObjectMethods } from './object.ts';
+import { getReachableMethods } from './reachable.ts';
 import { getRefCountMethods } from './refcount.ts';
 import type { EndpointId, KRef, ERef } from '../../types.ts';
 import type { StoreContext } from '../types.ts';
@@ -22,7 +22,7 @@ import {
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 export function getCListMethods(ctx: StoreContext) {
   const { getSlotKey } = getBaseMethods(ctx.kv);
-  const { clearReachableFlag } = getGCMethods(ctx);
+  const { clearReachableFlag } = getReachableMethods(ctx);
   const { getObjectRefCount, setObjectRefCount } = getObjectMethods(ctx);
   const { kernelRefExists, refCountKey } = getRefCountMethods(ctx);
 
@@ -137,6 +137,19 @@ export function getCListMethods(ctx: StoreContext) {
   }
 
   /**
+   * Look up the ERef that and endpoint's c-list maps a KRef to.
+   *
+   * @param endpointId - The endpoint in question.
+   * @param krefs - The KRefs to look up.
+   * @returns The given endpoint's ERefs corresponding to `krefs`
+   */
+  function krefsToExistingErefs(endpointId: EndpointId, krefs: KRef[]): ERef[] {
+    return krefs
+      .map((kref) => krefToEref(endpointId, kref))
+      .filter((eref): eref is ERef => Boolean(eref));
+  }
+
+  /**
    * Remove an entry from an endpoint's c-list given an eref.
    *
    * @param endpointId - The endpoint whose c-list entry is to be removed.
@@ -218,7 +231,7 @@ export function getCListMethods(ctx: StoreContext) {
     {
       isExport = false,
       onlyRecognizable = false,
-    }: { isExport?: boolean; onlyRecognizable?: boolean },
+    }: { isExport?: boolean; onlyRecognizable?: boolean } = {},
   ): boolean {
     kref || Fail`decrementRefCount called with empty kref`;
 
@@ -263,6 +276,7 @@ export function getCListMethods(ctx: StoreContext) {
     krefToEref,
     forgetEref,
     forgetKref,
+    krefsToExistingErefs,
     // Refcount management
     incrementRefCount,
     decrementRefCount,

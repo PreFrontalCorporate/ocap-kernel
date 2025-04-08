@@ -9,6 +9,7 @@ import { makeMarshal } from '@endo/marshal';
 import type { CapData } from '@endo/marshal';
 import { StreamReadError } from '@ocap/errors';
 import type { DuplexStream } from '@ocap/streams';
+import { waitUntilQuiescent } from '@ocap/utils';
 
 import type { VatCommand, VatCommandReply } from './messages/index.ts';
 import { VatCommandMethod } from './messages/index.ts';
@@ -17,7 +18,7 @@ import { makeSupervisorSyscall } from './services/syscall.ts';
 import type { DispatchFn, MakeLiveSlotsFn, GCTools } from './services/types.ts';
 import type { VatConfig, VatId, VRef } from './types.ts';
 import { ROOT_OBJECT_VREF, isVatConfig } from './types.ts';
-import { waitUntilQuiescent } from './utils/wait-quiescent.ts';
+import { makeGCAndFinalize } from './utils/gc-finalize.ts';
 import type { VatKVStore } from './VatKVStore.ts';
 import { makeVatKVStore } from './VatKVStore.ts';
 
@@ -228,8 +229,7 @@ export class VatSupervisor {
       WeakRef,
       FinalizationRegistry,
       waitUntilQuiescent,
-      // eslint-disable-next-line no-empty-function
-      gcAndFinalize: async () => {},
+      gcAndFinalize: makeGCAndFinalize(),
       meterControl: makeDummyMeterControl(),
     });
 

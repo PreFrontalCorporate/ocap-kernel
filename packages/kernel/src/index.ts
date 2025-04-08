@@ -18,3 +18,7 @@ export {
   VatConfigStruct,
   ClusterConfigStruct,
 } from './types.ts';
+export { kunser, kser } from './services/kernel-marshal.ts';
+export { makeKernelStore } from './store/index.ts';
+export type { KernelStore } from './store/index.ts';
+export { parseRef } from './store/utils/parse-ref.ts';
