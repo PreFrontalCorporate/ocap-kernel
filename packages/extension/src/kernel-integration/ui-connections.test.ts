@@ -4,7 +4,6 @@ import { delay } from '@ocap/test-utils';
 import { TestDuplexStream } from '@ocap/test-utils/streams';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-import type { KernelControlReply } from './messages.ts';
 import {
   establishKernelConnection,
   receiveUiConnections,
@@ -85,7 +84,6 @@ class MockBroadcastChannel {
 
 vi.stubGlobal('BroadcastChannel', MockBroadcastChannel);
 
-// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 const makeMockLogger = () =>
   ({
     ...console,
@@ -163,9 +161,7 @@ describe('ui-connections', () => {
     const logger = makeMockLogger();
 
     const mockHandleMessage = vi.fn(
-      async (
-        _request: JsonRpcRequest,
-      ): Promise<JsonRpcResponse<KernelControlReply['result']>> => ({
+      async (_request: JsonRpcRequest): Promise<JsonRpcResponse> => ({
         id: 'foo',
         jsonrpc: '2.0' as const,
         result: { vats: [], clusterConfig },
