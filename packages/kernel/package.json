@@ -19,6 +19,16 @@
         "default": "./dist/index.cjs"
       }
     },
+    "./rpc": {
+      "import": {
+        "types": "./dist/rpc/index.d.mts",
+        "default": "./dist/rpc/index.mjs"
+      },
+      "require": {
+        "types": "./dist/rpc/index.d.cts",
+        "default": "./dist/rpc/index.cjs"
+      }
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -52,6 +62,7 @@
     "@metamask/superstruct": "^3.2.0",
     "@metamask/utils": "^11.4.0",
     "@ocap/errors": "workspace:^",
+    "@ocap/rpc-methods": "workspace:^",
     "@ocap/store": "workspace:^",
     "@ocap/streams": "workspace:^",
     "@ocap/utils": "workspace:^",
