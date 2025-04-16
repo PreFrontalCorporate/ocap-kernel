@@ -1,6 +1,10 @@
+import { Fail } from '@endo/errors';
+
 import { getBaseMethods } from './base.ts';
+import { getCListMethods } from './clist.ts';
+import { getReachableMethods } from './reachable.ts';
 import type { EndpointId, KRef, VatConfig, VatId } from '../../types.ts';
-import type { StoreContext } from '../types.ts';
+import type { StoreContext, VatCleanupWork } from '../types.ts';
 import { parseRef } from '../utils/parse-ref.ts';
 import { parseReachableAndVatSlot } from '../utils/reachable.ts';
 
@@ -22,6 +26,8 @@ const VAT_CONFIG_BASE_LEN = VAT_CONFIG_BASE.length;
 export function getVatMethods(ctx: StoreContext) {
   const { kv } = ctx;
   const { getPrefixedKeys, getSlotKey } = getBaseMethods(ctx.kv);
+  const { deleteCListEntry } = getCListMethods(ctx);
+  const { getReachableAndVatSlot } = getReachableMethods(ctx);
 
   /**
    * Delete all persistent state associated with an endpoint.
@@ -129,6 +135,160 @@ export function getVatMethods(ctx: StoreContext) {
     return importers;
   }
 
+  /**
+   * Get the list of terminated vats.
+   *
+   * @returns an array of terminated vat IDs.
+   */
+  function getTerminatedVats(): VatId[] {
+    return JSON.parse(ctx.terminatedVats.get() ?? '[]');
+  }
+
+  /**
+   * Check if a vat is terminated.
+   *
+   * @param vatID - The ID of the vat to check.
+   * @returns True if the vat is terminated, false otherwise.
+   */
+  function isVatTerminated(vatID: VatId): boolean {
+    return getTerminatedVats().includes(vatID);
+  }
+
+  /**
+   * Add a vat to the list of terminated vats.
+   *
+   * @param vatID - The ID of the vat to add.
+   */
+  function markVatAsTerminated(vatID: VatId): void {
+    const terminatedVats = getTerminatedVats();
+    if (!terminatedVats.includes(vatID)) {
+      terminatedVats.push(vatID);
+      ctx.terminatedVats.set(JSON.stringify(terminatedVats));
+    }
+  }
+
+  /**
+   * Remove a vat from the list of terminated vats.
+   *
+   * @param vatID - The ID of the vat to remove.
+   */
+  function forgetTerminatedVat(vatID: VatId): void {
+    const terminatedVats = getTerminatedVats().filter((id) => id !== vatID);
+    ctx.terminatedVats.set(JSON.stringify(terminatedVats));
+  }
+
+  /**
+   * Cleanup a terminated vat.
+   *
+   * @param vatID - The ID of the vat to cleanup.
+   * @returns The work done during the cleanup.
+   */
+  function cleanupTerminatedVat(vatID: VatId): VatCleanupWork {
+    const work = {
+      exports: 0,
+      imports: 0,
+      promises: 0,
+      kv: 0,
+    };
+
+    if (!isVatTerminated(vatID)) {
+      return work;
+    }
+
+    const clistPrefix = `${vatID}.c.`;
+    const exportPrefix = `${clistPrefix}o+`;
+    const importPrefix = `${clistPrefix}o-`;
+    const promisePrefix = `${clistPrefix}p`;
+
+    // Note: ASCII order is "+,-./", and we rely upon this to split the
+    // keyspace into the various o+NN/o-NN/etc spaces. If we were using a
+    // more sophisticated database, we'd keep each section in a separate
+    // table.
+
+    // The current store semantics ensure this iteration is lexicographic.
+    // Any changes to the creation of the list of promises to be rejected (and
+    // thus to the order in which they *get* rejected) need to preserve this
+    // ordering in order to preserve determinism.
+
+    // first, scan for exported objects, which must be orphaned
+    for (const key of getPrefixedKeys(exportPrefix)) {
+      // The void for an object exported by a vat will always be of the form
+      // `o+NN`.  The '+' means that the vat exported the object (rather than
+      // importing it) and therefore the object is owned by (i.e., within) the
+      // vat.  The corresponding void->koid c-list entry will thus always
+      // begin with `vMM.c.o+`.  In addition to deleting the c-list entry, we
+      // must also delete the corresponding kernel owner entry for the object,
+      // since the object will no longer be accessible.
+      assert(key.startsWith(clistPrefix), key);
+      const vref = key.slice(clistPrefix.length);
+      assert(vref.startsWith('o+'), vref);
+      const kref = ctx.kv.get(key);
+      assert(kref, key);
+      // deletes c-list and .owner, adds to maybeFreeKrefs
+      const ownerKey = `${kref}.owner`;
+      const ownerVat = ctx.kv.get(ownerKey);
+      ownerVat === vatID || Fail`export ${kref} not owned by old vat`;
+      ctx.kv.delete(ownerKey);
+      const { vatSlot } = getReachableAndVatSlot(vatID, kref);
+      ctx.kv.delete(getSlotKey(vatID, kref));
+      ctx.kv.delete(getSlotKey(vatID, vatSlot));
+      ctx.maybeFreeKrefs.add(kref);
+      work.exports += 1;
+    }
+
+    // then scan for imported objects, which must be decrefed
+    for (const key of getPrefixedKeys(importPrefix)) {
+      // abandoned imports: delete the clist entry as if the vat did a
+      // drop+retire
+      const kref = ctx.kv.get(key) ?? Fail`getNextKey ensures get`;
+      assert(key.startsWith(clistPrefix), key);
+      const vref = key.slice(clistPrefix.length);
+      deleteCListEntry(vatID, kref, vref);
+      // that will also delete both db keys
+      work.imports += 1;
+    }
+
+    // The caller used enumeratePromisesByDecider() before calling us,
+    // so they have already rejected the orphan promises, but those
+    // kpids are still present in the dead vat's c-list. Clean those up now.
+    for (const key of getPrefixedKeys(promisePrefix)) {
+      const kref = ctx.kv.get(key) ?? Fail`getNextKey ensures get`;
+      assert(key.startsWith(clistPrefix), key);
+      const vref = key.slice(clistPrefix.length);
+      deleteCListEntry(vatID, kref, vref);
+      // that will also delete both db keys
+      work.promises += 1;
+    }
+
+    // Finally, clean up any remaining KV entries for this vat
+    for (const key of getPrefixedKeys(`${vatID}.`)) {
+      ctx.kv.delete(key);
+      work.kv += 1;
+    }
+
+    // Clean up any remaining c-list entries and vat-specific counters
+    deleteEndpoint(vatID);
+
+    // Remove the vat from the terminated vats list
+    forgetTerminatedVat(vatID);
+
+    // Log the cleanup work done
+    console.log(`Cleaned up terminated vat ${vatID}:`, work);
+
+    return work;
+  }
+
+  /**
+   * Get the next terminated vat to cleanup.
+   *
+   * @returns The work done during the cleanup.
+   */
+  function nextTerminatedVatCleanup(): boolean {
+    const vatID = getTerminatedVats()?.[0];
+    vatID && cleanupTerminatedVat(vatID);
+    return getTerminatedVats().length > 0;
+  }
+
   return {
     deleteEndpoint,
     getAllVatRecords,
@@ -138,5 +298,11 @@ export function getVatMethods(ctx: StoreContext) {
     getVatIDs,
     importsKernelSlot,
     getImporters,
+    getTerminatedVats,
+    markVatAsTerminated,
+    forgetTerminatedVat,
+    isVatTerminated,
+    cleanupTerminatedVat,
+    nextTerminatedVatCleanup,
   };
 }

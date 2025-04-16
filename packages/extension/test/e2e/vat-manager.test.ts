@@ -263,4 +263,85 @@ test.describe('Vat Manager', () => {
       minimalClusterConfig.vats.main.parameters.name,
     );
   });
+
+  test('should collect garbage', async () => {
+    await popupPage.click('button:text("Database Inspector")');
+    await expect(messageOutput).toContainText(
+      '{"key":"vats.terminated","value":"[]"}',
+    );
+    const v3Values = [
+      '{"key":"e.nextPromiseId.v3","value":"2"}',
+      '{"key":"e.nextObjectId.v3","value":"1"}',
+      '{"key":"ko3.owner","value":"v3"}',
+      '{"key":"v3.c.ko3","value":"R o+0"}',
+      '{"key":"v3.c.o+0","value":"ko3"}',
+      '{"key":"v3.c.kp3","value":"R p-1"}',
+      '{"key":"v3.c.p-1","value":"kp3"}',
+    ];
+    const v1ko3Values = [
+      '{"key":"v1.c.ko3","value":"R o-2"}',
+      '{"key":"v1.c.o-2","value":"ko3"}',
+      '{"key":"ko3.refCount","value":"2,2"}',
+      '{"key":"kp3.state","value":"fulfilled"}',
+      '{"key":"kp3.value","value"',
+    ];
+    await expect(messageOutput).toContainText(
+      '{"key":"kp3.refCount","value":"2"}',
+    );
+    await expect(messageOutput).toContainText('{"key":"vatConfig.v3","value"');
+    for (const value of v3Values) {
+      await expect(messageOutput).toContainText(value);
+    }
+    for (const value of v1ko3Values) {
+      await expect(messageOutput).toContainText(value);
+    }
+    await popupPage.click('button:text("Vat Manager")');
+    await popupPage.locator('td button:text("Terminate")').last().click();
+    await expect(messageOutput).toContainText('Terminated vat "v3"');
+    await popupPage.locator('[data-testid="clear-logs-button"]').click();
+    await expect(messageOutput).toContainText('');
+    await popupPage.click('button:text("Database Inspector")');
+    await expect(messageOutput).toContainText(
+      '{"key":"vats.terminated","value":"[\\"v3\\"]"}',
+    );
+    await expect(messageOutput).not.toContainText(
+      '{"key":"vatConfig.v3","value"',
+    );
+    for (const value of v3Values) {
+      await expect(messageOutput).toContainText(value);
+    }
+    await popupPage.click('button:text("Vat Manager")');
+    await popupPage.click('button:text("Collect Garbage")');
+    await expect(messageOutput).toContainText('Garbage collected');
+    await popupPage.locator('[data-testid="clear-logs-button"]').click();
+    await expect(messageOutput).toContainText('');
+    await popupPage.click('button:text("Database Inspector")');
+    // v3 is gone
+    for (const value of v3Values) {
+      await expect(messageOutput).not.toContainText(value);
+    }
+    // ko3 reference still exists for v1
+    for (const value of v1ko3Values) {
+      await expect(messageOutput).toContainText(value);
+    }
+    // kp3 reference dropped to 1
+    await expect(messageOutput).toContainText(
+      '{"key":"kp3.refCount","value":"1"}',
+    );
+    await popupPage.click('button:text("Vat Manager")');
+    // delete v1
+    await popupPage.locator('td button:text("Terminate")').first().click();
+    await expect(messageOutput).toContainText('Terminated vat "v1"');
+    await popupPage.click('button:text("Collect Garbage")');
+    await expect(messageOutput).toContainText('Garbage collected');
+    await popupPage.locator('[data-testid="clear-logs-button"]').click();
+    await expect(messageOutput).toContainText('');
+    await popupPage.click('button:text("Database Inspector")');
+    await expect(messageOutput).toContainText(
+      '{"key":"vats.terminated","value":"[]"}',
+    );
+    for (const value of v1ko3Values) {
+      await expect(messageOutput).not.toContainText(value);
+    }
+  });
 });

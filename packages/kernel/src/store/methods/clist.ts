@@ -35,7 +35,7 @@ export function getCListMethods(ctx: StoreContext) {
    * @param kref - The KRef.
    * @param eref - The ERef.
    */
-  function addClistEntry(endpointId: EndpointId, kref: KRef, eref: ERef): void {
+  function addCListEntry(endpointId: EndpointId, kref: KRef, eref: ERef): void {
     ctx.kv.set(
       getSlotKey(endpointId, kref),
       buildReachableAndVatSlot(true, eref),
@@ -61,7 +61,7 @@ export function getCListMethods(ctx: StoreContext) {
    * @param kref - The KRef.
    * @param eref - The ERef.
    */
-  function deleteClistEntry(
+  function deleteCListEntry(
     endpointId: EndpointId,
     kref: KRef,
     eref: ERef,
@@ -71,7 +71,7 @@ export function getCListMethods(ctx: StoreContext) {
     assert(ctx.kv.get(kernelKey));
     clearReachableFlag(endpointId, kref);
     const { direction } = parseRef(eref);
-    decrementRefCount(kref, {
+    decrementRefCount(kref, 'delete|kref', {
       isExport: direction === 'export',
       onlyRecognizable: true,
     });
@@ -102,7 +102,7 @@ export function getCListMethods(ctx: StoreContext) {
       refType = 'o';
     }
     const eref = `${refTag}${refType}-${id}`;
-    addClistEntry(endpointId, kref, eref);
+    addCListEntry(endpointId, kref, eref);
     return eref;
   }
 
@@ -158,7 +158,7 @@ export function getCListMethods(ctx: StoreContext) {
   function forgetEref(endpointId: EndpointId, eref: ERef): void {
     const kref = erefToKref(endpointId, eref);
     if (kref) {
-      deleteClistEntry(endpointId, kref, eref);
+      deleteCListEntry(endpointId, kref, eref);
     }
   }
 
@@ -171,7 +171,7 @@ export function getCListMethods(ctx: StoreContext) {
   function forgetKref(endpointId: EndpointId, kref: KRef): void {
     const eref = krefToEref(endpointId, kref);
     if (eref) {
-      deleteClistEntry(endpointId, kref, eref);
+      deleteCListEntry(endpointId, kref, eref);
     }
   }
 
@@ -183,22 +183,25 @@ export function getCListMethods(ctx: StoreContext) {
    * and "recognizable" counts.
    *
    * @param kref - The kernel slot whose refcount is to be incremented.
+   * @param tag - The tag of the kernel slot.
    * @param options - Options for the increment.
    * @param options.isExport - True if the reference comes from a clist export, which counts for promises but not objects.
    * @param options.onlyRecognizable - True if the reference provides only recognition, not reachability.
    */
   function incrementRefCount(
     kref: KRef,
+    tag: string,
     {
       isExport = false,
       onlyRecognizable = false,
-    }: { isExport?: boolean; onlyRecognizable?: boolean },
+    }: { isExport?: boolean; onlyRecognizable?: boolean } = {},
   ): void {
     kref || Fail`incrementRefCount called with empty kref`;
 
     const { isPromise } = parseRef(kref);
     if (isPromise) {
       const refCount = Number(ctx.kv.get(refCountKey(kref))) + 1;
+      console.debug('++', refCountKey(kref), refCount, tag);
       ctx.kv.set(refCountKey(kref), `${refCount}`);
       return;
     }
@@ -213,6 +216,7 @@ export function getCListMethods(ctx: StoreContext) {
       counts.reachable += 1;
     }
     counts.recognizable += 1;
+    console.debug('++', refCountKey(kref), JSON.stringify(counts), tag);
     setObjectRefCount(kref, counts);
   }
 
@@ -220,6 +224,7 @@ export function getCListMethods(ctx: StoreContext) {
    * Decrement the reference count associated with some kernel object.
    *
    * @param kref - The kernel slot whose refcount is to be decremented.
+   * @param tag - The tag of the kernel slot.
    * @param options - Options for the decrement.
    * @param options.isExport - True if the reference comes from a clist export, which counts for promises but not objects.
    * @param options.onlyRecognizable - True if the reference provides only recognition, not reachability.
@@ -228,6 +233,7 @@ export function getCListMethods(ctx: StoreContext) {
    */
   function decrementRefCount(
     kref: KRef,
+    tag: string,
     {
       isExport = false,
       onlyRecognizable = false,
@@ -238,6 +244,7 @@ export function getCListMethods(ctx: StoreContext) {
     const { isPromise } = parseRef(kref);
     if (isPromise) {
       let refCount = Number(ctx.kv.get(refCountKey(kref)));
+      console.debug('--', refCountKey(kref), refCount - 1, tag);
       refCount > 0 || Fail`refCount underflow ${kref}`;
       refCount -= 1;
       ctx.kv.set(refCountKey(kref), `${refCount}`);
@@ -260,6 +267,7 @@ export function getCListMethods(ctx: StoreContext) {
     if (!counts.reachable || !counts.recognizable) {
       ctx.maybeFreeKrefs.add(kref);
     }
+    console.debug('--', refCountKey(kref), JSON.stringify(counts), tag);
     setObjectRefCount(kref, counts);
     ctx.kv.set('initialized', 'true');
     return false;
@@ -267,9 +275,9 @@ export function getCListMethods(ctx: StoreContext) {
 
   return {
     // C-List entries
-    addClistEntry,
+    addCListEntry,
     hasCListEntry,
-    deleteClistEntry,
+    deleteCListEntry,
     // Eref allocation
     allocateErefForKref,
     erefToKref,

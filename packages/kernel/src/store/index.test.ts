@@ -53,16 +53,17 @@ describe('kernel store', () => {
     it('has all the expected parts', () => {
       const ks = makeKernelStore(mockKernelDatabase);
       expect(Object.keys(ks).sort()).toStrictEqual([
-        'addClistEntry',
+        'addCListEntry',
         'addGCActions',
         'addPromiseSubscriber',
         'allocateErefForKref',
+        'cleanupTerminatedVat',
         'clear',
         'clearReachableFlag',
         'collectGarbage',
         'decRefCount',
         'decrementRefCount',
-        'deleteClistEntry',
+        'deleteCListEntry',
         'deleteEndpoint',
         'deleteKernelObject',
         'deleteKernelPromise',
@@ -74,6 +75,7 @@ describe('kernel store', () => {
         'erefToKref',
         'forgetEref',
         'forgetKref',
+        'forgetTerminatedVat',
         'getAllVatRecords',
         'getGCActions',
         'getImporters',
@@ -90,6 +92,7 @@ describe('kernel store', () => {
         'getReachableAndVatSlot',
         'getReachableFlag',
         'getRefCount',
+        'getTerminatedVats',
         'getVatConfig',
         'getVatIDs',
         'hasCListEntry',
@@ -99,12 +102,15 @@ describe('kernel store', () => {
         'initEndpoint',
         'initKernelObject',
         'initKernelPromise',
+        'isVatTerminated',
         'kernelRefExists',
         'krefToEref',
         'krefsToExistingErefs',
         'kv',
         'makeVatStore',
+        'markVatAsTerminated',
         'nextReapAction',
+        'nextTerminatedVatCleanup',
         'refCountKey',
         'reset',
         'resolveKernelPromise',
@@ -141,23 +147,23 @@ describe('kernel store', () => {
       expect(refCounts.recognizable).toBe(1);
 
       // Increment the reference count
-      ks.incrementRefCount('ko1', {});
+      ks.incrementRefCount('ko1', 'test');
       expect(ks.getObjectRefCount('ko1').reachable).toBe(2);
       expect(ks.getObjectRefCount('ko1').recognizable).toBe(2);
 
       // Increment again
-      ks.incrementRefCount('ko1', {});
+      ks.incrementRefCount('ko1', 'test');
       expect(ks.getObjectRefCount('ko1').reachable).toBe(3);
       expect(ks.getObjectRefCount('ko1').recognizable).toBe(3);
 
       // Decrement
-      ks.decrementRefCount('ko1', {});
+      ks.decrementRefCount('ko1', 'tess');
       expect(ks.getObjectRefCount('ko1').reachable).toBe(2);
       expect(ks.getObjectRefCount('ko1').recognizable).toBe(2);
 
       // Decrement twice more to reach 0
-      ks.decrementRefCount('ko1', {});
-      ks.decrementRefCount('ko1', {});
+      ks.decrementRefCount('ko1', 'test');
+      ks.decrementRefCount('ko1', 'test');
       expect(ks.getObjectRefCount('ko1').reachable).toBe(0);
       expect(ks.getObjectRefCount('ko1').recognizable).toBe(0);
 
@@ -234,11 +240,11 @@ describe('kernel store', () => {
       const [kp61] = ks.initKernelPromise();
 
       // Add C-list entries
-      ks.addClistEntry('v2', ko42, 'o-63');
-      ks.addClistEntry('v2', ko51, 'o-74');
-      ks.addClistEntry('v2', kp60, 'p+85');
-      ks.addClistEntry('r7', ko42, 'ro+11');
-      ks.addClistEntry('r7', kp61, 'rp-99');
+      ks.addCListEntry('v2', ko42, 'o-63');
+      ks.addCListEntry('v2', ko51, 'o-74');
+      ks.addCListEntry('v2', kp60, 'p+85');
+      ks.addCListEntry('r7', ko42, 'ro+11');
+      ks.addCListEntry('r7', kp61, 'rp-99');
 
       // Verify mappings
       expect(ks.krefToEref('v2', ko42)).toBe('o-63');
@@ -275,7 +281,7 @@ describe('kernel store', () => {
       ks.getNextRemoteId();
       const koId = ks.initKernelObject('v1');
       const [kpId] = ks.initKernelPromise();
-      ks.addClistEntry('v1', koId, 'o-1');
+      ks.addCListEntry('v1', koId, 'o-1');
       ks.enqueueRun(tm('test message'));
       ks.reset();
       expect(ks.getNextVatId()).toBe('v1');
