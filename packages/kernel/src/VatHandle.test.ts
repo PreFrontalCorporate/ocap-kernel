@@ -5,7 +5,7 @@ import { makeLogger } from '@ocap/utils';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { MockInstance } from 'vitest';
 
-import { Kernel } from './Kernel.ts';
+import type { KernelQueue } from './KernelQueue.ts';
 import { isVatCommandReply, VatCommandMethod } from './messages/index.ts';
 import type { VatCommand, VatCommandReply } from './messages/index.ts';
 import { makeKernelStore } from './store/index.ts';
@@ -37,7 +37,7 @@ const makeVat = async (
   });
   return {
     vat: await VatHandle.make({
-      kernel: null as unknown as Kernel,
+      kernelQueue: null as unknown as KernelQueue,
       kernelStore: mockKernelStore,
       vatId: 'v0',
       vatConfig: { sourceSpec: 'not-really-there.js' },
