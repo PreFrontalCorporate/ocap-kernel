@@ -1,12 +1,7 @@
 /* eslint-disable no-lonely-if, no-else-return */
-import type { KVStore } from '@ocap/store';
+import type { VatKVStore, VatCheckpoint } from '@ocap/store';
 
-import type { VatCheckpoint } from '../types.ts';
 import { keySearch } from '../utils/key-search.ts';
-
-export type VatKVStore = KVStore & {
-  checkpoint(): VatCheckpoint;
-};
 
 /**
  * Create an in-memory VatKVStore for a vat, backed by a Map and tracking
@@ -17,8 +12,8 @@ export type VatKVStore = KVStore & {
  * @returns a VatKVStore wrapped around `state`.
  */
 export function makeVatKVStore(state: Map<string, string>): VatKVStore {
-  let sets: Map<string, string> = new Map();
-  let deletes: Set<string> = new Set();
+  const sets: Map<string, string> = new Map();
+  const deletes: Set<string> = new Set();
   let keyCache: string[] | null = null;
   let lastNextKey: string | null = null;
   let lastNextKeyIndex: number = -1;
@@ -72,9 +67,12 @@ export function makeVatKVStore(state: Map<string, string>): VatKVStore {
       keyCache = null;
     },
     checkpoint(): VatCheckpoint {
-      const result: VatCheckpoint = [sets, deletes];
-      sets = new Map();
-      deletes = new Set();
+      const result: VatCheckpoint = [
+        Array.from(sets.entries()),
+        Array.from(deletes),
+      ];
+      sets.clear();
+      deletes.clear();
       return result;
     },
   };

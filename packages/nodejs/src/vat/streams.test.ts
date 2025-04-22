@@ -9,10 +9,6 @@ const doMockParentPort = (value: unknown): void => {
   vi.resetModules();
 };
 
-vi.mock('@ocap/kernel', async () => ({
-  isVatCommand: vi.fn(() => true),
-}));
-
 vi.mock('@ocap/streams', () => ({
   NodeWorkerDuplexStream: vi.fn(),
 }));
@@ -37,13 +33,13 @@ describe('getPort', () => {
   });
 });
 
-describe('makeCommandStream', () => {
+describe('makeKernelStream', () => {
   it('returns a NodeWorkerDuplexStream', async () => {
     doMockParentPort(new MessageChannel().port1);
 
     const { NodeWorkerDuplexStream } = await import('@ocap/streams');
-    const { makeCommandStream } = await import('./streams.ts');
-    const commandStream = makeCommandStream();
-    expect(commandStream).toBeInstanceOf(NodeWorkerDuplexStream);
+    const { makeKernelStream } = await import('./streams.ts');
+    const kernelStream = makeKernelStream();
+    expect(kernelStream).toBeInstanceOf(NodeWorkerDuplexStream);
   });
 });

@@ -157,13 +157,13 @@ describe('makeSQLKernelDatabase', () => {
       .mockReturnValueOnce(mockKVData[1].key)
       .mockReturnValueOnce(mockKVData[1].value);
     const data = vatStore.getKVData();
-    expect(data).toStrictEqual(new Map(mockKVDataForMap));
+    expect(data).toStrictEqual([...mockKVDataForMap]);
   });
 
   it('vatStore.updateKVData updates the database', async () => {
     const db = await makeSQLKernelDatabase({});
     const vatStore = db.makeVatStore('vvat');
-    vatStore.updateKVData(new Map(mockKVDataForMap), new Set(['del1', 'del2']));
+    vatStore.updateKVData([...mockKVDataForMap], ['del1', 'del2']);
     // begin transaction
     expect(mockStatement.step).toHaveBeenCalled();
     expect(mockStatement.reset).toHaveBeenCalled();

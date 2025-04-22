@@ -1,6 +1,7 @@
+import { isJsonRpcResponse } from '@metamask/utils';
 import type { Json } from '@metamask/utils';
-import { KernelCommandMethod, isKernelCommandReply } from '@ocap/kernel';
-import type { KernelCommand } from '@ocap/kernel';
+import { kernelMethodSpecs } from '@ocap/kernel/rpc';
+import { RpcClient } from '@ocap/rpc-methods';
 import { ChromeRuntimeDuplexStream } from '@ocap/streams/browser';
 import { delay, Logger } from '@ocap/utils';
 
@@ -29,23 +30,23 @@ async function main(): Promise<void> {
     'offscreen',
   );
 
-  /**
-   * Send a command to the offscreen document.
-   *
-   * @param command - The command to send.
-   */
-  const sendClusterCommand = async (command: KernelCommand): Promise<void> => {
-    await offscreenStream.write(command);
+  const rpcClient = new RpcClient(
+    kernelMethodSpecs,
+    async (request) => {
+      await offscreenStream.write(request);
+    },
+    'background:',
+  );
+
+  const ping = async (): Promise<void> => {
+    const result = await rpcClient.call('ping', []);
+    logger.info(result);
   };
 
   // globalThis.kernel will exist due to dev-console.js in background-trusted-prelude.js
   Object.defineProperties(globalThis.kernel, {
     ping: {
-      value: async () =>
-        sendClusterCommand({
-          method: KernelCommandMethod.ping,
-          params: [],
-        }),
+      value: ping,
     },
     sendMessage: {
       value: async (message: Json) => await offscreenStream.write(message),
@@ -55,29 +56,16 @@ async function main(): Promise<void> {
 
   // With this we can click the extension action button to wake up the service worker.
   chrome.action.onClicked.addListener(() => {
-    sendClusterCommand({
-      method: KernelCommandMethod.ping,
-      params: [],
-    }).catch(logger.error);
+    ping().catch(logger.error);
   });
 
   // Handle replies from the offscreen document
   for await (const message of offscreenStream) {
-    if (!isKernelCommandReply(message)) {
+    if (!isJsonRpcResponse(message)) {
       logger.error('Background received unexpected message', message);
       continue;
     }
-
-    switch (message.method) {
-      case KernelCommandMethod.ping:
-        logger.info('Background received ping reply', message.params);
-        break;
-      default:
-        logger.error(
-          // @ts-expect-error Compile-time exhaustiveness check
-          `Background received unexpected command method: "${message.method.valueOf()}"`,
-        );
-    }
+    rpcClient.handleResponse(message.id as string, message);
   }
 
   throw new Error('Offscreen connection closed unexpectedly');

@@ -3,18 +3,23 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import clusterConfig from '../../vats/default-cluster.json';
 
+vi.mock('../../kernel-integration/handlers/send-vat-command.ts', () => ({
+  assertVatCommandParams: vi.fn(),
+}));
+
 vi.mock('../context/PanelContext.tsx', () => ({
   usePanelContext: vi.fn(),
 }));
 
-vi.mock('@ocap/utils', () => ({
+vi.mock('@ocap/utils', async (importOriginal) => ({
+  ...(await importOriginal()),
   stringify: JSON.stringify,
 }));
 
 describe('useKernelActions', () => {
   const mockSendMessage = vi.fn();
   const mockLogMessage = vi.fn();
-  const mockMessageContent = '{"test": "content"}';
+  const mockMessageContent = '{"id": "v0", "payload": {"method": "test"}}';
 
   beforeEach(async () => {
     const { usePanelContext } = await import('../context/PanelContext.tsx');
@@ -26,6 +31,7 @@ describe('useKernelActions', () => {
       status: undefined,
       panelLogs: [],
       clearLogs: vi.fn(),
+      isLoading: false,
     });
   });
 
@@ -33,13 +39,15 @@ describe('useKernelActions', () => {
     it('sends message with payload', async () => {
       const { useKernelActions } = await import('./useKernelActions.ts');
       const { result } = renderHook(() => useKernelActions());
-      const expectedParams = { test: 'content' };
       mockSendMessage.mockResolvedValueOnce({ success: true });
       result.current.sendKernelCommand();
       await waitFor(() => {
         expect(mockSendMessage).toHaveBeenCalledWith({
           method: 'sendVatCommand',
-          params: expectedParams,
+          params: expect.objectContaining({
+            id: 'v0',
+            payload: expect.any(Object),
+          }),
         });
       });
     });

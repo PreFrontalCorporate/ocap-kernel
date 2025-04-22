@@ -1,8 +1,13 @@
+import { hasProperty, isObject } from '@metamask/utils';
 import type { ClusterConfig } from '@ocap/kernel';
 import { stringify } from '@ocap/utils';
 import { useCallback } from 'react';
 
+import { assertVatCommandParams } from '../../kernel-integration/handlers/send-vat-command.ts';
+import type { SendVatCommandParams } from '../../kernel-integration/handlers/send-vat-command.ts';
 import { usePanelContext } from '../context/PanelContext.tsx';
+import { nextMessageId } from '../utils.ts';
+
 /**
  * Hook for handling kernel actions.
  *
@@ -25,7 +30,7 @@ export function useKernelActions(): {
   const sendKernelCommand = useCallback(() => {
     callKernelMethod({
       method: 'sendVatCommand',
-      params: JSON.parse(messageContent),
+      params: parseCommandParams(messageContent),
     })
       .then((result) => logMessage(stringify(result, 0), 'received'))
       .catch((error) => logMessage(error.message, 'error'));
@@ -123,4 +128,32 @@ export function useKernelActions(): {
     launchVat,
     updateClusterConfig,
   };
+}
+
+/**
+ * Parses sendVatCommand params to the expected format. Basically, turns the payload
+ * into a JSON-RPC request.
+ *
+ * @param rawParams - The raw, stringified params to parse.
+ * @returns The parsed params.
+ */
+function parseCommandParams(rawParams: string): SendVatCommandParams {
+  const params = JSON.parse(rawParams);
+  if (
+    isObject(params) &&
+    isObject(params.payload) &&
+    hasProperty(params.payload, 'method')
+  ) {
+    const parsed = {
+      ...params,
+      payload: {
+        ...params.payload,
+        id: nextMessageId(),
+        jsonrpc: '2.0',
+      },
+    };
+    assertVatCommandParams(parsed);
+    return parsed;
+  }
+  throw new Error('Invalid command params');
 }

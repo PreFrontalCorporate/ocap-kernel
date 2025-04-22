@@ -85,12 +85,12 @@ describe('RpcClient', () => {
   });
 
   describe('handleResponse', () => {
-    it('should log an error if the message id is not found', () => {
+    it('calls logger.debug if the message id is not found', () => {
       const logger = makeLogger('[test]');
       const client = new RpcClient(getMethods(), vi.fn(), 'test', logger);
-      const logError = vi.spyOn(logger, 'error');
+      const logDebug = vi.spyOn(logger, 'debug');
       client.handleResponse('test1', 'test');
-      expect(logError).toHaveBeenCalledWith(
+      expect(logDebug).toHaveBeenCalledWith(
         'Received response with unexpected id "test1".',
       );
     });
