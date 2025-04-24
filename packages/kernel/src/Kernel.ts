@@ -7,11 +7,11 @@ import {
   VatAlreadyExistsError,
   VatNotFoundError,
 } from '@ocap/errors';
+import { Logger } from '@ocap/logger';
 import { RpcService } from '@ocap/rpc-methods';
 import type { ExtractParams, ExtractResult } from '@ocap/rpc-methods';
 import type { KernelDatabase } from '@ocap/store';
 import type { DuplexStream } from '@ocap/streams';
-import { Logger } from '@ocap/utils';
 import type { JsonRpcCall } from '@ocap/utils';
 
 import { KernelQueue } from './KernelQueue.ts';

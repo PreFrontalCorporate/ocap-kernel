@@ -1,0 +1,111 @@
+import { describe, it, expect, vi } from 'vitest';
+
+import { Logger } from './logger.ts';
+import { consoleTransport } from './transports.ts';
+
+const consoleMethod = ['log', 'debug', 'info', 'warn', 'error'] as const;
+const transports = [consoleTransport];
+
+describe('Logger', () => {
+  it.each([
+    ['no arguments', undefined],
+    ['an empty object', {}],
+    ['a string tag', 'test'],
+    ['an options bag', { tags: ['test'], transports: [consoleTransport] }],
+  ])('can be constructed with $description', (_description, options) => {
+    const logger = new Logger(options);
+    expect(logger).toBeInstanceOf(Logger);
+  });
+
+  it.each(consoleMethod)('has method %j', (method) => {
+    const testLogger = new Logger({ tags: ['test'], transports });
+    expect(testLogger).toHaveProperty(method);
+    expect(testLogger[method]).toBeTypeOf('function');
+  });
+
+  it.each(consoleMethod)(
+    'calls %j with the provided tags followed by a single argument',
+    (method) => {
+      const methodSpy = vi.spyOn(console, method);
+      const tags = ['test'];
+      const testLogger = new Logger({ tags, transports });
+      testLogger[method]('foo');
+      expect(methodSpy).toHaveBeenCalledWith(tags, 'foo');
+    },
+  );
+
+  it.each(consoleMethod)(
+    'calls %j with the provided tags followed by multiple arguments',
+    (method) => {
+      const methodSpy = vi.spyOn(console, method);
+      const tags = ['test'];
+      const testLogger = new Logger({ tags, transports });
+      testLogger[method]('foo', { bar: 'bar' });
+      expect(methodSpy).toHaveBeenCalledWith(tags, 'foo', { bar: 'bar' });
+    },
+  );
+
+  it.each(consoleMethod)(
+    'calls %j with the provided tags when given no argument',
+    (method) => {
+      const methodSpy = vi.spyOn(console, method);
+      const tags = ['test'];
+      const testLogger = new Logger({ tags, transports });
+      testLogger[method]();
+      expect(methodSpy).toHaveBeenCalledWith(tags);
+    },
+  );
+
+  it('can be nested', () => {
+    const consoleSpy = vi.spyOn(console, 'log');
+    const vatLogger = new Logger({ tags: ['vat 0x01'] });
+    const subLogger = vatLogger.subLogger({ tags: ['(process)'], transports });
+    subLogger.log('foo');
+    expect(consoleSpy).toHaveBeenCalledWith(['vat 0x01', '(process)'], 'foo');
+  });
+
+  it('omits tagline when no tags are provided', () => {
+    const consoleSpy = vi.spyOn(console, 'log');
+    const logger = new Logger();
+    logger.log('foo');
+    expect(consoleSpy).toHaveBeenCalledWith('foo');
+  });
+
+  it('passes objects directly in the data field', () => {
+    const consoleSpy = vi.spyOn(console, 'log');
+    const logger = new Logger({ tags: ['test'], transports });
+    const message = 'foo';
+    const data = { bar: 'bar' };
+    logger.log(message, data);
+    expect(consoleSpy).toHaveBeenCalledWith(['test'], message, data);
+  });
+
+  describe('subLogger', () => {
+    it('creates a new logger with the merged options', () => {
+      const consoleSpy = vi.spyOn(console, 'log');
+      const logger = new Logger({ tags: ['test'], transports });
+      const subLogger = logger.subLogger({ tags: ['sub'] });
+      expect(subLogger).toBeInstanceOf(Logger);
+      subLogger.log('foo');
+      expect(consoleSpy).toHaveBeenCalledWith(['test', 'sub'], 'foo');
+    });
+
+    it('works with no options', () => {
+      const consoleSpy = vi.spyOn(console, 'log');
+      const logger = new Logger({ tags: ['test'], transports });
+      const subLogger = logger.subLogger();
+      expect(subLogger).toBeInstanceOf(Logger);
+      subLogger.log('foo');
+      expect(consoleSpy).toHaveBeenCalledWith(['test'], 'foo');
+    });
+
+    it('works with a string', () => {
+      const consoleSpy = vi.spyOn(console, 'log');
+      const logger = new Logger({ tags: ['test'], transports });
+      const subLogger = logger.subLogger('sub');
+      expect(subLogger).toBeInstanceOf(Logger);
+      subLogger.log('foo');
+      expect(consoleSpy).toHaveBeenCalledWith(['test', 'sub'], 'foo');
+    });
+  });
+});

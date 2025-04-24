@@ -1,5 +1,6 @@
 import { isJsonRpcResponse } from '@metamask/utils';
 import type { JsonRpcResponse } from '@metamask/utils';
+import { Logger } from '@ocap/logger';
 import type { DuplexStream } from '@ocap/streams';
 import {
   initializeMessageChannel,
@@ -7,7 +8,7 @@ import {
   MessagePortDuplexStream,
 } from '@ocap/streams/browser';
 import type { PostMessageTarget } from '@ocap/streams/browser';
-import { delay, isJsonRpcCall, Logger } from '@ocap/utils';
+import { delay, isJsonRpcCall } from '@ocap/utils';
 import type { JsonRpcCall } from '@ocap/utils';
 
 import { makeIframeVatWorker } from './kernel-integration/iframe-vat-worker.ts';

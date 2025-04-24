@@ -2,13 +2,14 @@ import { JsonRpcEngine } from '@metamask/json-rpc-engine';
 import type { JsonRpcRequest, JsonRpcResponse } from '@metamask/utils';
 import type { ClusterConfig } from '@ocap/kernel';
 import { ClusterConfigStruct, Kernel } from '@ocap/kernel';
+import { Logger } from '@ocap/logger';
 import { makeSQLKernelDatabase } from '@ocap/store/sqlite/wasm';
 import type { PostMessageTarget } from '@ocap/streams/browser';
 import {
   MessagePortDuplexStream,
   receiveMessagePort,
 } from '@ocap/streams/browser';
-import { fetchValidatedJson, isJsonRpcCall, Logger } from '@ocap/utils';
+import { fetchValidatedJson, isJsonRpcCall } from '@ocap/utils';
 import type { JsonRpcCall } from '@ocap/utils';
 
 import { makeLoggingMiddleware } from './middleware/logging.ts';

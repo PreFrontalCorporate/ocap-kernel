@@ -1,5 +1,5 @@
 import { jsonrpc2 } from '@metamask/utils';
-import { makeLogger } from '@ocap/utils';
+import type { Logger } from '@ocap/logger';
 import { describe, it, vi, expect } from 'vitest';
 
 import { RpcClient } from './RpcClient.ts';
@@ -82,14 +82,20 @@ describe('RpcClient', () => {
     });
 
     it('should log an error if the message fails to send', async () => {
-      const logger = makeLogger('[test]');
+      const mockLogger = {
+        error: vi.fn(),
+      } as unknown as Logger;
       const sendMessage = vi.fn(async () =>
         Promise.reject(new Error('test error')),
       );
-      const client = new RpcClient(getMethods(), sendMessage, 'test', logger);
-      const logError = vi.spyOn(logger, 'error');
+      const client = new RpcClient(
+        getMethods(),
+        sendMessage,
+        'test',
+        mockLogger,
+      );
       await client.notify('method3', ['test']);
-      expect(logError).toHaveBeenCalledWith(
+      expect(mockLogger.error).toHaveBeenCalledWith(
         'Failed to send notification',
         new Error('test error'),
       );
@@ -113,11 +119,10 @@ describe('RpcClient', () => {
 
   describe('handleResponse', () => {
     it('calls logger.debug if the message id is not found', () => {
-      const logger = makeLogger('[test]');
+      const logger = { debug: vi.fn() } as unknown as Logger;
       const client = new RpcClient(getMethods(), vi.fn(), 'test', logger);
-      const logDebug = vi.spyOn(logger, 'debug');
       client.handleResponse('test1', 'test');
-      expect(logDebug).toHaveBeenCalledWith(
+      expect(logger.debug).toHaveBeenCalledWith(
         'Received response with unexpected id "test1".',
       );
     });
