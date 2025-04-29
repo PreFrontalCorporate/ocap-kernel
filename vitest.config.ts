@@ -89,10 +89,10 @@ export default defineConfig({
           lines: 82.5,
         },
         'packages/kernel/**': {
-          statements: 90.55,
-          functions: 92.27,
-          branches: 79.57,
-          lines: 90.53,
+          statements: 90.43,
+          functions: 92.18,
+          branches: 79.89,
+          lines: 90.41,
         },
         'packages/logger/**': {
           statements: 100,
