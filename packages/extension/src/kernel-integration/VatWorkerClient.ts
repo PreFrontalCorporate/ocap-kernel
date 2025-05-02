@@ -1,20 +1,20 @@
-import { isJsonRpcResponse } from '@metamask/utils';
-import type { JsonRpcId, JsonRpcResponse } from '@metamask/utils';
-import type { VatWorkerManager, VatId, VatConfig } from '@ocap/kernel';
-import { vatWorkerServiceMethodSpecs } from '@ocap/kernel/rpc';
-import { Logger } from '@ocap/logger';
-import { RpcClient } from '@ocap/rpc-methods';
-import type { DuplexStream } from '@ocap/streams';
+import { RpcClient } from '@metamask/kernel-rpc-methods';
+import type { JsonRpcCall, JsonRpcMessage } from '@metamask/kernel-utils';
+import { isJsonRpcMessage, stringify } from '@metamask/kernel-utils';
+import { Logger } from '@metamask/logger';
+import type { VatWorkerManager, VatId, VatConfig } from '@metamask/ocap-kernel';
+import { vatWorkerServiceMethodSpecs } from '@metamask/ocap-kernel/rpc';
+import type { DuplexStream } from '@metamask/streams';
 import {
   MessagePortDuplexStream,
   PostMessageDuplexStream,
-} from '@ocap/streams/browser';
+} from '@metamask/streams/browser';
 import type {
   PostMessageEnvelope,
   PostMessageTarget,
-} from '@ocap/streams/browser';
-import type { JsonRpcCall, JsonRpcMessage } from '@ocap/utils';
-import { isJsonRpcMessage, stringify } from '@ocap/utils';
+} from '@metamask/streams/browser';
+import { isJsonRpcResponse } from '@metamask/utils';
+import type { JsonRpcId, JsonRpcResponse } from '@metamask/utils';
 
 // Appears in the docs.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars

@@ -1,7 +1,7 @@
-import '@ocap/shims/endoify';
+import '@metamask/kernel-shims/endoify';
 
-import type { VatId } from '@ocap/kernel';
-import { makeCounter } from '@ocap/utils';
+import { makeCounter } from '@metamask/kernel-utils';
+import type { VatId } from '@metamask/ocap-kernel';
 import { describe, expect, it, vi } from 'vitest';
 
 import { NodejsVatWorkerManager } from './VatWorkerManager.ts';
@@ -19,7 +19,7 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 
-vi.mock('@ocap/streams', () => ({
+vi.mock('@metamask/streams', () => ({
   NodeWorkerDuplexStream: vi.fn(() => mocks.stream),
 }));
 

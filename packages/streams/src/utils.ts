@@ -1,4 +1,10 @@
 import type { Reader, Writer } from '@endo/stream';
+import {
+  isMarshaledError,
+  marshalError,
+  unmarshalError,
+} from '@metamask/kernel-errors';
+import { stringify } from '@metamask/kernel-utils';
 import type { Infer } from '@metamask/superstruct';
 import { is, literal } from '@metamask/superstruct';
 import {
@@ -7,8 +13,6 @@ import {
   object,
   UnsafeJsonStruct,
 } from '@metamask/utils';
-import { isMarshaledError, marshalError, unmarshalError } from '@ocap/errors';
-import { stringify } from '@ocap/utils';
 
 export type { Reader, Writer };
 

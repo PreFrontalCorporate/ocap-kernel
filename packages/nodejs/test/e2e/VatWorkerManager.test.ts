@@ -1,8 +1,8 @@
-import '@ocap/shims/endoify';
+import '@metamask/kernel-shims/endoify';
 
-import type { VatId } from '@ocap/kernel';
-import { NodeWorkerDuplexStream } from '@ocap/streams';
-import { makeCounter } from '@ocap/utils';
+import { makeCounter } from '@metamask/kernel-utils';
+import type { VatId } from '@metamask/ocap-kernel';
+import { NodeWorkerDuplexStream } from '@metamask/streams';
 import { describe, expect, it, vi } from 'vitest';
 
 import { NodejsVatWorkerManager } from '../../src/kernel/VatWorkerManager.ts';
@@ -27,7 +27,7 @@ describe('NodejsVatWorkerManager', () => {
     it('rejects if synchronize fails', async () => {
       const rejected = 'test-reject-value';
 
-      vi.doMock('@ocap/streams', () => ({
+      vi.doMock('@metamask/streams', () => ({
         NodeWorkerDuplexStream: vi.fn().mockImplementation(() => ({
           synchronize: vi.fn(() => 'no').mockRejectedValue(rejected),
         })),

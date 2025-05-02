@@ -1,11 +1,11 @@
-import { VatSupervisor } from '@ocap/kernel';
-import { Logger } from '@ocap/logger';
+import type { JsonRpcMessage } from '@metamask/kernel-utils';
+import { isJsonRpcMessage } from '@metamask/kernel-utils';
+import { Logger } from '@metamask/logger';
+import { VatSupervisor } from '@metamask/ocap-kernel';
 import {
   MessagePortDuplexStream,
   receiveMessagePort,
-} from '@ocap/streams/browser';
-import type { JsonRpcMessage } from '@ocap/utils';
-import { isJsonRpcMessage } from '@ocap/utils';
+} from '@metamask/streams/browser';
 
 const logger = new Logger('iframe');
 

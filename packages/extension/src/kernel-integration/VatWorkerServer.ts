@@ -1,4 +1,18 @@
+import {
+  VatAlreadyExistsError,
+  VatNotFoundError,
+} from '@metamask/kernel-errors';
+import type { ExtractParams } from '@metamask/kernel-rpc-methods';
+import { Logger } from '@metamask/logger';
+import type { VatId, VatConfig } from '@metamask/ocap-kernel';
+import type { VatWorkerServiceMethod } from '@metamask/ocap-kernel/rpc';
+import { vatWorkerServiceMethodSpecs } from '@metamask/ocap-kernel/rpc';
 import { rpcErrors, serializeError } from '@metamask/rpc-errors';
+import { PostMessageDuplexStream } from '@metamask/streams/browser';
+import type {
+  PostMessageEnvelope,
+  PostMessageTarget,
+} from '@metamask/streams/browser';
 import { hasProperty, isJsonRpcRequest } from '@metamask/utils';
 import type {
   JsonRpcId,
@@ -6,17 +20,6 @@ import type {
   JsonRpcRequest,
   JsonRpcResponse,
 } from '@metamask/utils';
-import { VatAlreadyExistsError, VatNotFoundError } from '@ocap/errors';
-import type { VatId, VatConfig } from '@ocap/kernel';
-import type { VatWorkerServiceMethod } from '@ocap/kernel/rpc';
-import { vatWorkerServiceMethodSpecs } from '@ocap/kernel/rpc';
-import { Logger } from '@ocap/logger';
-import type { ExtractParams } from '@ocap/rpc-methods';
-import { PostMessageDuplexStream } from '@ocap/streams/browser';
-import type {
-  PostMessageEnvelope,
-  PostMessageTarget,
-} from '@ocap/streams/browser';
 
 // Appears in the docs.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars

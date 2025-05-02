@@ -1,7 +1,7 @@
+import type { MethodSpec, Handler } from '@metamask/kernel-rpc-methods';
+import { VatConfigStruct } from '@metamask/ocap-kernel';
+import type { Kernel, VatConfig } from '@metamask/ocap-kernel';
 import { literal } from '@metamask/superstruct';
-import { VatConfigStruct } from '@ocap/kernel';
-import type { Kernel, VatConfig } from '@ocap/kernel';
-import type { MethodSpec, Handler } from '@ocap/rpc-methods';
 
 export const launchVatSpec: MethodSpec<
   'launchVat',
