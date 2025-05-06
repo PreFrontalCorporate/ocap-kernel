@@ -95,6 +95,7 @@ export class Kernel {
       this.#kernelQueue,
       this.#getVat.bind(this),
     );
+    harden(this);
   }
 
   /**
@@ -253,7 +254,7 @@ export class Kernel {
     config: ClusterConfig,
   ): Promise<CapData<KRef> | undefined> {
     isClusterConfig(config) || Fail`invalid cluster config`;
-    if (config.bootstrap && !config.vats[config.bootstrap]) {
+    if (!config.vats[config.bootstrap]) {
       Fail`invalid bootstrap vat name ${config.bootstrap}`;
     }
     this.#mostRecentSubcluster = config;
@@ -264,11 +265,9 @@ export class Kernel {
       rootIds[vatName] = rootRef;
       roots[vatName] = kslot(rootRef, 'vatRoot');
     }
-    if (config.bootstrap) {
-      const bootstrapRoot = rootIds[config.bootstrap];
-      if (bootstrapRoot) {
-        return this.queueMessage(bootstrapRoot, 'bootstrap', [roots]);
-      }
+    const bootstrapRoot = rootIds[config.bootstrap];
+    if (bootstrapRoot) {
+      return this.queueMessage(bootstrapRoot, 'bootstrap', [roots]);
     }
     return undefined;
   }
@@ -483,4 +482,4 @@ export class Kernel {
     this.#kernelStore.collectGarbage();
   }
 }
-// harden(Kernel); // XXX restore this once vitest is able to cope
+harden(Kernel);
