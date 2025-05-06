@@ -7,7 +7,7 @@ import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { describe, it, expect } from 'vitest';
 
-import { getBundleSpec } from './utils.ts';
+import { getBundleSpec, makeMockLogger } from './utils.ts';
 import { TestDuplexStream } from '../../streams/test/stream-mocks.ts';
 
 const makeVatSupervisor = async ({
@@ -26,6 +26,7 @@ const makeVatSupervisor = async ({
     supervisor: new VatSupervisor({
       id: 'test-id',
       kernelStream,
+      logger: makeMockLogger(),
       vatPowers,
       // eslint-disable-next-line n/no-unsupported-features/node-builtins
       fetchBlob: async (url: string): Promise<Response> => {

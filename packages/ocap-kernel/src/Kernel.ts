@@ -6,8 +6,9 @@ import {
 } from '@metamask/kernel-errors';
 import { RpcService } from '@metamask/kernel-rpc-methods';
 import type { KernelDatabase } from '@metamask/kernel-store';
+import { stringify } from '@metamask/kernel-utils';
 import type { JsonRpcCall } from '@metamask/kernel-utils';
-import { Logger } from '@metamask/logger';
+import { Logger, splitLoggerStream } from '@metamask/logger';
 import { serializeError } from '@metamask/rpc-errors';
 import type { DuplexStream } from '@metamask/streams';
 import { hasProperty } from '@metamask/utils';
@@ -83,7 +84,7 @@ export class Kernel {
     this.#rpcService = new RpcService(kernelHandlers, {});
     this.#vats = new Map();
     this.#vatWorkerService = vatWorkerService;
-    this.#logger = options.logger ?? new Logger('[ocap kernel]');
+    this.#logger = options.logger ?? new Logger('ocap-kernel');
     this.#kernelStore = makeKernelStore(kernelDatabase);
     if (options.resetStorage) {
       this.#resetKernelState();
@@ -207,13 +208,20 @@ export class Kernel {
     if (this.#vats.has(vatId)) {
       throw new VatAlreadyExistsError(vatId);
     }
-    const vatStream = await this.#vatWorkerService.launch(vatId, vatConfig);
+    const stream = await this.#vatWorkerService.launch(vatId, vatConfig);
+    const { kernelStream: vatStream, loggerStream } = splitLoggerStream(stream);
+    const vatLogger = this.#logger.subLogger({ tags: [vatId] });
+    vatLogger.injectStream(
+      loggerStream as unknown as Parameters<typeof vatLogger.injectStream>[0],
+      (error) => this.#logger.error(`Vat ${vatId} error: ${stringify(error)}`),
+    );
     const vat = await VatHandle.make({
       vatId,
       vatConfig,
       vatStream,
       kernelStore: this.#kernelStore,
       kernelQueue: this.#kernelQueue,
+      logger: vatLogger,
     });
     this.#vats.set(vatId, vat);
   }
@@ -300,7 +308,7 @@ export class Kernel {
       throw new VatNotFoundError(vatId);
     }
     await vat.terminate(terminating);
-    await this.#vatWorkerService.terminate(vatId).catch(console.error);
+    await this.#vatWorkerService.terminate(vatId).catch(this.#logger.error);
     this.#vats.delete(vatId);
   }
 

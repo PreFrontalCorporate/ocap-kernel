@@ -48,7 +48,11 @@
  * ```
  */
 
+import type { DuplexStream } from '@metamask/streams';
+
 import { parseOptions, mergeOptions } from './options.ts';
+import { lunser } from './stream.ts';
+import type { LogMessage, SerializedLogEntry } from './stream.ts';
 import type {
   LogLevel,
   LogEntry,
@@ -96,10 +100,12 @@ export class Logger {
     // Create aliases for the log methods, allowing them to be used in a
     // manner similar to the console object.
     const bind = (level: LogLevel): LogMethod =>
-      this.#dispatch.bind(this, {
-        ...this.#options,
-        level,
-      }) as LogMethod;
+      harden(
+        this.#dispatch.bind(this, {
+          ...this.#options,
+          level,
+        }),
+      ) as LogMethod;
     this.log = bind('log');
     this.debug = bind('debug');
     this.info = bind('info');
@@ -121,6 +127,27 @@ export class Logger {
         typeof options === 'string' ? { tags: [options] } : options,
       ),
     );
+  }
+
+  /**
+   * Injects a stream of log messages into the logger.
+   *
+   * @param stream - The stream of log messages to inject.
+   * @param onError - The function to call if an error occurs while draining
+   *   the stream. If not provided, the error will be lost to the void.
+   */
+  injectStream(
+    stream: DuplexStream<LogMessage>,
+    onError?: (error: unknown) => void,
+  ): void {
+    stream
+      .drain(async ({ params }) => {
+        const [, ...args]: ['logger', ...SerializedLogEntry] = params;
+        const { level, tags, message, data } = lunser(args);
+        const logArgs: LogArgs = message ? [message, ...(data ?? [])] : [];
+        this.#dispatch({ level, tags }, ...logArgs);
+      })
+      .catch((problem) => onError?.(problem));
   }
 
   #dispatch(options: LoggerOptions, ...args: LogArgs): void {

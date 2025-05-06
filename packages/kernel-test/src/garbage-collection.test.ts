@@ -14,6 +14,7 @@ import { expect, beforeEach, describe, it } from 'vitest';
 import {
   getBundleSpec,
   makeKernel,
+  makeMockLogger,
   parseReplyBody,
   runTestVats,
 } from './utils.ts';
@@ -58,7 +59,7 @@ describe('Garbage Collection', () => {
       dbFilename: ':memory:',
     });
     kernelStore = makeKernelStore(kernelDatabase);
-    kernel = await makeKernel(kernelDatabase, true);
+    kernel = await makeKernel(kernelDatabase, true, makeMockLogger());
     await runTestVats(kernel, makeTestSubcluster());
 
     const vats = kernel.getVats();

@@ -1,6 +1,8 @@
 import { isJsonRpcMessage } from '@metamask/kernel-utils';
 import type { JsonRpcMessage } from '@metamask/kernel-utils';
+import { splitLoggerStream } from '@metamask/logger';
 import { NodeWorkerDuplexStream } from '@metamask/streams';
+import type { DuplexStream } from '@metamask/streams';
 import { parentPort } from 'node:worker_threads';
 import type { MessagePort as NodePort } from 'node:worker_threads';
 
@@ -21,14 +23,20 @@ export function getPort(): NodePort {
  * When called from within Node.js worker, returns a DuplexStream which
  * communicates over the parentPort.
  *
- * @returns A NodeWorkerDuplexStream
+ * @returns A pair of NodeWorkerDuplexStreams
  */
-export function makeKernelStream(): NodeWorkerDuplexStream<
-  JsonRpcMessage,
-  JsonRpcMessage
-> {
-  return new NodeWorkerDuplexStream<JsonRpcMessage, JsonRpcMessage>(
+export async function makeStreams(): Promise<{
+  kernelStream: DuplexStream<JsonRpcMessage>;
+  loggerStream: DuplexStream<JsonRpcMessage>;
+}> {
+  const stream = new NodeWorkerDuplexStream<JsonRpcMessage>(
     getPort(),
     isJsonRpcMessage,
   );
+
+  const { kernelStream, loggerStream } = splitLoggerStream(stream);
+
+  await stream.synchronize();
+
+  return { kernelStream, loggerStream };
 }

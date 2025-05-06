@@ -3,6 +3,8 @@
 
 import type { KernelDatabase } from '@metamask/kernel-store';
 import { waitUntilQuiescent } from '@metamask/kernel-utils';
+import { Logger, makeArrayTransport } from '@metamask/logger';
+import type { LogEntry } from '@metamask/logger';
 import { Kernel, kunser } from '@metamask/ocap-kernel';
 import type { ClusterConfig } from '@metamask/ocap-kernel';
 import { NodeWorkerDuplexStream } from '@metamask/streams';
@@ -12,6 +14,7 @@ import {
   MessagePort as NodeMessagePort,
   MessageChannel as NodeMessageChannel,
 } from 'node:worker_threads';
+import { vi } from 'vitest';
 
 /**
  * Construct a bundle path URL from a bundle name.
@@ -65,25 +68,30 @@ export async function runResume(
  *
  * @param kernelDatabase - The database that will hold the persistent state.
  * @param resetStorage - If true, reset the database as part of setting up.
+ * @param logger - The logger to use for the kernel.
  *
  * @returns the new kernel instance.
  */
 export async function makeKernel(
   kernelDatabase: KernelDatabase,
   resetStorage: boolean,
+  logger: Logger,
 ): Promise<Kernel> {
   const kernelPort: NodeMessagePort = new NodeMessageChannel().port1;
   const nodeStream = new NodeWorkerDuplexStream<
     JsonRpcRequest,
     JsonRpcResponse
   >(kernelPort);
-  const vatWorkerClient = new NodejsVatWorkerManager({});
+  const vatWorkerClient = new NodejsVatWorkerManager({
+    logger: logger.subLogger({ tags: ['vat-worker-manager'] }),
+  });
   const kernel = await Kernel.make(
     nodeStream,
     vatWorkerClient,
     kernelDatabase,
     {
       resetStorage,
+      logger,
     },
   );
   return kernel;
@@ -115,18 +123,25 @@ export function sortLogs(logs: string[]): string[] {
 }
 
 /**
- * Convert a raw output buffer into a list of lines suitable for examination.
+ * Convert a list of log entries into a list of lines suitable for examination.
  *
- * @param buffer - The raw buffer to convert.
+ * @param entries - The list of log entries to convert.
+ * @param withTags - The tags to filter by.
  *
- * @returns the relevant contents of `buffer`, massaged for use.
+ * @returns the relevant contents of `entries`, massaged for use.
  */
-export function extractVatLogs(buffer: string): string[] {
-  const result = buffer
-    .split('\n')
-    .filter((line: string) => line.startsWith('::> '))
-    .map((line: string) => line.slice(4));
-  return sortLogs(result);
+export function extractTestLogs(
+  entries: LogEntry[],
+  ...withTags: string[]
+): string[] {
+  const hasTag =
+    withTags.length > 0
+      ? (tags: string[]) => withTags.some((tag) => tags.includes(tag))
+      : () => true;
+  return entries
+    .filter(({ tags }) => tags.includes('test') && hasTag(tags))
+    .map(({ message }) => message ?? '')
+    .filter((message) => message.length > 0);
 }
 
 /**
@@ -153,3 +168,34 @@ export function logDatabase(kernelDatabase: KernelDatabase): void {
   const result = kernelDatabase.executeQuery('SELECT * FROM kv');
   console.log(result);
 }
+
+/**
+ * Create a logger that records log entries in an array.
+ *
+ * @returns A logger that records log entries in an array.
+ */
+export const makeTestLogger = (): { logger: Logger; entries: LogEntry[] } => {
+  const entries: LogEntry[] = [];
+  const logger = new Logger({ transports: [makeArrayTransport(entries)] });
+  return { logger, entries };
+};
+
+/**
+ * Create a mock logger that can be used to spy on the logger methods.
+ * Derived sub-loggers will invoke the parent logger methods directly.
+ * The injectStream method is a no-op.
+ *
+ * @returns A mock logger.
+ */
+export const makeMockLogger = (): Logger => {
+  const mockLogger = {
+    log: vi.fn(),
+    error: vi.fn(),
+    warn: vi.fn(),
+    info: vi.fn(),
+    debug: vi.fn(),
+    subLogger: vi.fn(() => mockLogger),
+    injectStream: vi.fn(),
+  } as unknown as Logger;
+  return mockLogger;
+};

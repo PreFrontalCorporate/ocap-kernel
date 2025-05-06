@@ -1,8 +1,13 @@
+import type { JsonRpcMessage } from '@metamask/kernel-utils';
 import type { DuplexStream } from '@metamask/streams';
 import { describe, expect, it, vi } from 'vitest';
 
 import { logLevels } from './constants.ts';
-import { consoleTransport, makeStreamTransport } from './transports.ts';
+import {
+  consoleTransport,
+  makeArrayTransport,
+  makeStreamTransport,
+} from './transports.ts';
 import type { LogEntry, LogLevel } from './types.ts';
 
 const makeLogEntry = (level: LogLevel): LogEntry => ({
@@ -28,12 +33,35 @@ describe('consoleTransport', () => {
 
 describe('makeStreamTransport', () => {
   it('writes to the stream', () => {
-    const logEntry = makeLogEntry('info');
+    const logLevel = 'info';
+    const logEntry = makeLogEntry(logLevel);
     const mockStream = {
       write: vi.fn().mockResolvedValue(undefined),
-    } as unknown as DuplexStream<LogEntry>;
+    } as unknown as DuplexStream<JsonRpcMessage>;
     const streamTransport = makeStreamTransport(mockStream);
     streamTransport(logEntry);
-    expect(mockStream.write).toHaveBeenCalledWith(logEntry);
+    expect(mockStream.write).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'notify',
+        params: expect.arrayContaining([
+          'logger',
+          logLevel,
+          logEntry.tags,
+          logEntry.message,
+          null,
+        ]),
+        jsonrpc: '2.0',
+      }),
+    );
+  });
+});
+
+describe('makeArrayTransport', () => {
+  it('writes to the array', () => {
+    const target: LogEntry[] = [];
+    const arrayTransport = makeArrayTransport(target);
+    const logEntry = makeLogEntry('info');
+    arrayTransport(logEntry);
+    expect(target).toStrictEqual([logEntry]);
   });
 });
